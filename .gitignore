@@ -1,0 +1,36 @@
+# Build artifacts
+build/
+dist/
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.o
+*.obj
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dependencies
+node_modules/
+target/
+__pycache__/
+*.pyc
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
