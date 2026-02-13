@@ -1,0 +1,31 @@
+[package]
+name = "phantom-zkvm"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+phantom-core = { path = "../phantom-core" }
+phantom-crypto = { path = "../phantom-crypto" }
+phantom-circuit = { path = "../phantom-circuit" }
+phantom-zkvm-methods = { path = "./methods" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_bytes = "0.11"
+bincode = "1.3"
+blake3 = "1.5"
+rand = "0.8"
+
+# Plonky2 - High-performance SNARK system (PRODUCTION)
+plonky2 = { git = "https://github.com/mir-protocol/plonky2" }
+
+# RISC Zero zkVM (deprecated, kept for comparison)
+risc0-zkvm = { version = "3.0", features = ["prove", "std"] }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "zkvm_benchmarks"
+harness = false

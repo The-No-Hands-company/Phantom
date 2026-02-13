@@ -1,0 +1,20 @@
+[package]
+name = "phantom-discovery"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+phantom-crypto = { path = "../phantom-crypto" }
+phantom-core = { path = "../phantom-core" }
+phantom-circuit = { path = "../phantom-circuit" }
+
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"
+blake3 = "1.5"
+thiserror = "1.0"
+plonky2 = "0.2"
+rand = "0.8"
+
+[dev-dependencies]
+criterion = "0.5"
+hex = "0.4"

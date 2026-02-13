@@ -1,0 +1,53 @@
+[package]
+name = "phantom-crypto"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[features]
+default = []
+gpu = ["tfhe/gpu"]
+
+[dependencies]
+# Post-Quantum Cryptography
+pqcrypto-kyber = { workspace = true }
+pqcrypto-dilithium = { workspace = true }
+pqcrypto-traits = { workspace = true }
+
+# Fully Homomorphic Encryption
+tfhe = { workspace = true, features = ["integer"] }
+
+# Zero-Knowledge
+ark-std = { workspace = true }
+ark-ec = { workspace = true }
+ark-ff = { workspace = true }
+ark-serialize = { workspace = true }
+
+# Utilities
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_bytes = { workspace = true }
+bincode = { workspace = true }
+rand = { workspace = true }
+rand_core = { workspace = true }
+blake3 = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+rayon = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+proptest = { workspace = true }
+
+[[bench]]
+name = "pq_benchmarks"
+harness = false
+
+[[bench]]
+name = "fhe_benchmarks"
+harness = false
+
+[[bench]]
+name = "gpu_benchmarks"
+harness = false

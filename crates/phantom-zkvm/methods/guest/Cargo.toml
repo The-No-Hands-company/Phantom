@@ -1,0 +1,13 @@
+[package]
+name = "phantom-route-validator"
+version = "0.1.0"
+edition = "2021"
+
+# Guest programs are standalone - NOT part of the workspace
+# They compile to riscv32im-risc0-zkvm-elf target
+[workspace]
+
+[dependencies]
+risc0-zkvm = { version = "3.0", default-features = false, features = ["std"] }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+blake3 = { version = "1.5", default-features = false }

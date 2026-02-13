@@ -1,0 +1,21 @@
+[package]
+name = "phantom-node"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "phantom-node"
+path = "src/main.rs"
+
+[dependencies]
+phantom-crypto = { path = "../phantom-crypto" }
+phantom-core = { path = "../phantom-core" }
+phantom-routing = { path = "../phantom-routing" }
+phantom-discovery = { path = "../phantom-discovery" }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

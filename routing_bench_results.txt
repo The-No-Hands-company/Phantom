@@ -1,0 +1,424 @@
+   Compiling phantom-circuit v0.1.0 (/run/media/zajferx/Data/dev/The-No-hands-Company/projects/Active/Phantom/crates/phantom-circuit)
+warning: unused import: `Target`
+  --> crates/phantom-circuit/src/merkle.rs:20:40
+   |
+20 | use plonky2::iop::target::{BoolTarget, Target};
+   |                                        ^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `plonky2::hash::hash_types::HashOutTarget`
+  --> crates/phantom-circuit/src/path.rs:20:5
+   |
+20 | use plonky2::hash::hash_types::HashOutTarget;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `plonky2::field::types::Field`
+  --> crates/phantom-circuit/src/routing.rs:16:5
+   |
+16 | use plonky2::field::types::Field;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused `Result` that must be used
+   --> crates/phantom-circuit/src/merkle.rs:259:9
+    |
+259 |         pw.set_target(a, F::TWO);
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+    = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+    |
+259 |         let _ = pw.set_target(a, F::TWO);
+    |         +++++++
+
+warning: unused `Result` that must be used
+   --> crates/phantom-circuit/src/merkle.rs:260:9
+    |
+260 |         pw.set_target(b, F::from_canonical_u64(3));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+    |
+260 |         let _ = pw.set_target(b, F::from_canonical_u64(3));
+    |         +++++++
+
+warning: unused `Result` that must be used
+   --> crates/phantom-circuit/src/merkle.rs:261:9
+    |
+261 |         pw.set_target(c, F::from_canonical_u64(5));
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+    |
+261 |         let _ = pw.set_target(c, F::from_canonical_u64(5));
+    |         +++++++
+
+warning: `phantom-circuit` (lib) generated 6 warnings (run `cargo fix --lib -p phantom-circuit` to apply 3 suggestions)
+error[E0432]: unresolved import `phantom_circuit::merkle::MerkleData`
+ --> crates/phantom-circuit/benches/routing_benchmarks.rs:5:29
+  |
+5 |     merkle::{MerkleCircuit, MerkleData},
+  |                             ^^^^^^^^^^ no `MerkleData` in `merkle`
+
+error[E0599]: no function or associated item named `hash_no_pad` found for struct `PoseidonHash` in the current scope
+  --> crates/phantom-circuit/benches/routing_benchmarks.rs:39:38
+   |
+39 |             let hash = PoseidonHash::hash_no_pad(&[left, right]);
+   |                                      ^^^^^^^^^^^ function or associated item not found in `PoseidonHash`
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `Hasher` which provides `hash_no_pad` is implemented but not in scope; perhaps you want to import it
+   |
+ 3 + use plonky2::plonk::config::Hasher;
+   |
+help: there is an associated function `hash_pad` with a similar name
+   |
+39 -             let hash = PoseidonHash::hash_no_pad(&[left, right]);
+39 +             let hash = PoseidonHash::hash_pad(&[left, right]);
+   |
+
+error[E0107]: struct takes 0 generic arguments but 3 generic arguments were supplied
+  --> crates/phantom-circuit/benches/routing_benchmarks.rs:81:26
+   |
+81 |     let merkle_circuit = MerkleCircuit::<F, C, D>::new();
+   |                          ^^^^^^^^^^^^^----------- help: remove the unnecessary generics
+   |                          |
+   |                          expected 0 generic arguments
+   |
+note: struct defined here, with 0 generic parameters
+  --> /run/media/zajferx/Data/dev/The-No-hands-Company/projects/Active/Phantom/crates/phantom-circuit/src/merkle.rs:44:12
+   |
+44 | pub struct MerkleCircuit {
+   |            ^^^^^^^^^^^^^
+
+error[E0061]: this function takes 1 argument but 0 arguments were supplied
+  --> crates/phantom-circuit/benches/routing_benchmarks.rs:81:26
+   |
+81 |     let merkle_circuit = MerkleCircuit::<F, C, D>::new();
+   |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^-- argument #1 of type `usize` is missing
+   |
+note: associated function defined here
+  --> /run/media/zajferx/Data/dev/The-No-hands-Company/projects/Active/Phantom/crates/phantom-circuit/src/merkle.rs:59:12
+   |
+59 |     pub fn new(tree_depth: usize) -> Self {
+   |            ^^^
+help: provide the argument
+   |
+81 |     let merkle_circuit = MerkleCircuit::<F, C, D>::new(/* usize */);
+   |                                                        +++++++++++
+
+error[E0107]: struct takes 0 generic arguments but 3 generic arguments were supplied
+  --> crates/phantom-circuit/benches/routing_benchmarks.rs:82:47
+   |
+82 |     let path_circuit = phantom_circuit::path::PathValidationCircuit::<F, C, D>::new();
+   |                                               ^^^^^^^^^^^^^^^^^^^^^----------- help: remove the unnecessary generics
+   |                                               |
+   |                                               expected 0 generic arguments
+   |
+note: struct defined here, with 0 generic parameters
+  --> /run/media/zajferx/Data/dev/The-No-hands-Company/projects/Active/Phantom/crates/phantom-circuit/src/path.rs:39:12
+   |
+39 | pub struct PathValidationCircuit {
+   |            ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0061]: this function takes 1 argument but 0 arguments were supplied
+  --> crates/phantom-circuit/benches/routing_benchmarks.rs:82:24
+   |
+82 |     let path_circuit = phantom_circuit::path::PathValidationCircuit::<F, C, D>::new();
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^-- argument #1 of type `usize` is missing
+   |
+note: associated function defined here
+  --> /run/media/zajferx/Data/dev/The-No-hands-Company/projects/Active/Phantom/crates/phantom-circuit/src/path.rs:59:12
+   |
+59 |     pub fn new(max_path_length: usize) -> Self {
+   |            ^^^
+help: provide the argument
+   |
+82 |     let path_circuit = phantom_circuit::path::PathValidationCircuit::<F, C, D>::new(/* usize */);
+   |                                                                                     +++++++++++
+
+error[E0308]: arguments to this function are incorrect
+  --> crates/phantom-circuit/benches/routing_benchmarks.rs:83:26
+   |
+83 |     let routing_system = RoutingProofSystem::new(merkle_circuit, path_circuit);
+   |                          ^^^^^^^^^^^^^^^^^^^^^^^ --------------  ------------ expected `usize`, found `PathValidationCircuit`
+   |                                                  |
+   |                                                  expected `usize`, found `MerkleCircuit`
+   |
+note: associated function defined here
+  --> /run/media/zajferx/Data/dev/The-No-hands-Company/projects/Active/Phantom/crates/phantom-circuit/src/routing.rs:42:12
+   |
+42 |     pub fn new(tree_depth: usize, max_path_length: usize) -> Self {
+   |            ^^^
+
+error[E0599]: no function or associated item named `from_canonical_u64` found for struct `GoldilocksField` in the current scope
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:107:42
+    |
+107 |                         let sibling = F::from_canonical_u64((sibling_idx as u64) % (1 << (depth - level)));
+    |                                          ^^^^^^^^^^^^^^^^^^ function or associated item not found in `GoldilocksField`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `Field` which provides `from_canonical_u64` is implemented but not in scope; perhaps you want to import it
+    |
+  3 + use plonky2::plonky2_field::types::Field;
+    |
+help: there is an associated function `from_canonical_i64` with a similar name
+    |
+107 -                         let sibling = F::from_canonical_u64((sibling_idx as u64) % (1 << (depth - level)));
+107 +                         let sibling = F::from_canonical_i64((sibling_idx as u64) % (1 << (depth - level)));
+    |
+
+error[E0599]: no function or associated item named `from_canonical_u64` found for struct `GoldilocksField` in the current scope
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:113:34
+    |
+113 |                         leaf: F::from_canonical_u64(node_id as u64),
+    |                                  ^^^^^^^^^^^^^^^^^^ function or associated item not found in `GoldilocksField`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `Field` which provides `from_canonical_u64` is implemented but not in scope; perhaps you want to import it
+    |
+  3 + use plonky2::plonky2_field::types::Field;
+    |
+help: there is an associated function `from_canonical_i64` with a similar name
+    |
+113 -                         leaf: F::from_canonical_u64(node_id as u64),
+113 +                         leaf: F::from_canonical_i64(node_id as u64),
+    |
+
+error[E0063]: missing field `merkle_root` in initializer of `RoutingProofData`
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:119:36
+    |
+119 |                 let routing_data = RoutingProofData {
+    |                                    ^^^^^^^^^^^^^^^^ missing `merkle_root`
+
+error[E0308]: mismatched types
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:129:76
+    |
+129 |                         .prove_routing(black_box(&routing_data), black_box(merkle_root))
+    |                                                                  --------- ^^^^^^^^^^^ expected `&CircuitData<GoldilocksField, ..., 2>`, found `GoldilocksField`
+    |                                                                  |
+    |                                                                  arguments to this function are incorrect
+    |
+    = note: expected reference `&CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>`
+                  found struct `GoldilocksField`
+help: the return type of this call is `GoldilocksField` due to the type of the argument passed
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:129:66
+    |
+129 |                         .prove_routing(black_box(&routing_data), black_box(merkle_root))
+    |                                                                  ^^^^^^^^^^-----------^
+    |                                                                            |
+    |                                                                            this argument influences the return type of `black_box`
+note: function defined here
+   --> /home/zajferx/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/criterion-0.5.1/src/lib.rs:167:8
+    |
+167 | pub fn black_box<T>(dummy: T) -> T {
+    |        ^^^^^^^^^
+
+error[E0061]: this method takes 5 arguments but 2 arguments were supplied
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:129:26
+    |
+129 |                         .prove_routing(black_box(&routing_data), black_box(merkle_root))
+    |                          ^^^^^^^^^^^^^-------------------------------------------------- three arguments of type `&MerkleTargets`, `&CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>`, and `&PathTargets` are missing
+    |
+note: method defined here
+   --> /run/media/zajferx/Data/dev/The-No-hands-Company/projects/Active/Phantom/crates/phantom-circuit/src/routing.rs:56:12
+    |
+ 56 |     pub fn prove_routing(
+    |            ^^^^^^^^^^^^^
+help: provide the arguments
+    |
+129 |                         .prove_routing(black_box(&routing_data), black_box(merkle_root), /* &MerkleTargets */, /* &CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2> */, /* &PathTargets */)
+    |                                                                                        ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+error[E0107]: struct takes 0 generic arguments but 3 generic arguments were supplied
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:143:26
+    |
+143 |     let merkle_circuit = MerkleCircuit::<F, C, D>::new();
+    |                          ^^^^^^^^^^^^^----------- help: remove the unnecessary generics
+    |                          |
+    |                          expected 0 generic arguments
+    |
+note: struct defined here, with 0 generic parameters
+   --> /run/media/zajferx/Data/dev/The-No-hands-Company/projects/Active/Phantom/crates/phantom-circuit/src/merkle.rs:44:12
+    |
+ 44 | pub struct MerkleCircuit {
+    |            ^^^^^^^^^^^^^
+
+error[E0061]: this function takes 1 argument but 0 arguments were supplied
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:143:26
+    |
+143 |     let merkle_circuit = MerkleCircuit::<F, C, D>::new();
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^-- argument #1 of type `usize` is missing
+    |
+note: associated function defined here
+   --> /run/media/zajferx/Data/dev/The-No-hands-Company/projects/Active/Phantom/crates/phantom-circuit/src/merkle.rs:59:12
+    |
+ 59 |     pub fn new(tree_depth: usize) -> Self {
+    |            ^^^
+help: provide the argument
+    |
+143 |     let merkle_circuit = MerkleCircuit::<F, C, D>::new(/* usize */);
+    |                                                        +++++++++++
+
+error[E0107]: struct takes 0 generic arguments but 3 generic arguments were supplied
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:144:47
+    |
+144 |     let path_circuit = phantom_circuit::path::PathValidationCircuit::<F, C, D>::new();
+    |                                               ^^^^^^^^^^^^^^^^^^^^^----------- help: remove the unnecessary generics
+    |                                               |
+    |                                               expected 0 generic arguments
+    |
+note: struct defined here, with 0 generic parameters
+   --> /run/media/zajferx/Data/dev/The-No-hands-Company/projects/Active/Phantom/crates/phantom-circuit/src/path.rs:39:12
+    |
+ 39 | pub struct PathValidationCircuit {
+    |            ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0061]: this function takes 1 argument but 0 arguments were supplied
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:144:24
+    |
+144 |     let path_circuit = phantom_circuit::path::PathValidationCircuit::<F, C, D>::new();
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^-- argument #1 of type `usize` is missing
+    |
+note: associated function defined here
+   --> /run/media/zajferx/Data/dev/The-No-hands-Company/projects/Active/Phantom/crates/phantom-circuit/src/path.rs:59:12
+    |
+ 59 |     pub fn new(max_path_length: usize) -> Self {
+    |            ^^^
+help: provide the argument
+    |
+144 |     let path_circuit = phantom_circuit::path::PathValidationCircuit::<F, C, D>::new(/* usize */);
+    |                                                                                     +++++++++++
+
+error[E0308]: arguments to this function are incorrect
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:145:26
+    |
+145 |     let routing_system = RoutingProofSystem::new(merkle_circuit, path_circuit);
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^ --------------  ------------ expected `usize`, found `PathValidationCircuit`
+    |                                                  |
+    |                                                  expected `usize`, found `MerkleCircuit`
+    |
+note: associated function defined here
+   --> /run/media/zajferx/Data/dev/The-No-hands-Company/projects/Active/Phantom/crates/phantom-circuit/src/routing.rs:42:12
+    |
+ 42 |     pub fn new(tree_depth: usize, max_path_length: usize) -> Self {
+    |            ^^^
+
+error[E0599]: no function or associated item named `from_canonical_u64` found for struct `GoldilocksField` in the current scope
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:161:30
+    |
+161 |             let sibling = F::from_canonical_u64((sibling_idx as u64) % (1 << (4 - level)));
+    |                              ^^^^^^^^^^^^^^^^^^ function or associated item not found in `GoldilocksField`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `Field` which provides `from_canonical_u64` is implemented but not in scope; perhaps you want to import it
+    |
+  3 + use plonky2::plonky2_field::types::Field;
+    |
+help: there is an associated function `from_canonical_i64` with a similar name
+    |
+161 -             let sibling = F::from_canonical_u64((sibling_idx as u64) % (1 << (4 - level)));
+161 +             let sibling = F::from_canonical_i64((sibling_idx as u64) % (1 << (4 - level)));
+    |
+
+error[E0599]: no function or associated item named `from_canonical_u64` found for struct `GoldilocksField` in the current scope
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:167:22
+    |
+167 |             leaf: F::from_canonical_u64(node_id as u64),
+    |                      ^^^^^^^^^^^^^^^^^^ function or associated item not found in `GoldilocksField`
+    |
+    = help: items from traits can only be used if the trait is in scope
+help: trait `Field` which provides `from_canonical_u64` is implemented but not in scope; perhaps you want to import it
+    |
+  3 + use plonky2::plonky2_field::types::Field;
+    |
+help: there is an associated function `from_canonical_i64` with a similar name
+    |
+167 -             leaf: F::from_canonical_u64(node_id as u64),
+167 +             leaf: F::from_canonical_i64(node_id as u64),
+    |
+
+error[E0063]: missing field `merkle_root` in initializer of `RoutingProofData`
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:173:24
+    |
+173 |     let routing_data = RoutingProofData {
+    |                        ^^^^^^^^^^^^^^^^ missing `merkle_root`
+
+error[E0061]: this method takes 5 arguments but 2 arguments were supplied
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:183:10
+    |
+183 |         .prove_routing(&routing_data, root)
+    |          ^^^^^^^^^^^^^--------------------- three arguments of type `&MerkleTargets`, `&CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>`, and `&PathTargets` are missing
+    |
+note: expected `&CircuitData<GoldilocksField, ..., 2>`, found `GoldilocksField`
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:183:39
+    |
+183 |         .prove_routing(&routing_data, root)
+    |                                       ^^^^
+    = note: expected reference `&CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>`
+                  found struct `GoldilocksField`
+note: method defined here
+   --> /run/media/zajferx/Data/dev/The-No-hands-Company/projects/Active/Phantom/crates/phantom-circuit/src/routing.rs:56:12
+    |
+ 56 |     pub fn prove_routing(
+    |            ^^^^^^^^^^^^^
+help: provide the arguments
+    |
+183 -         .prove_routing(&routing_data, root)
+183 +         .prove_routing(&routing_data, /* &CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2> */, /* &MerkleTargets */, /* &CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2> */, /* &PathTargets */)
+    |
+
+error[E0308]: mismatched types
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:192:31
+    |
+192 |                     black_box(root),
+    |                     --------- ^^^^ expected `&CircuitData<GoldilocksField, ..., 2>`, found `GoldilocksField`
+    |                     |
+    |                     arguments to this function are incorrect
+    |
+    = note: expected reference `&CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>`
+                  found struct `GoldilocksField`
+help: the return type of this call is `GoldilocksField` due to the type of the argument passed
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:192:21
+    |
+192 |                     black_box(root),
+    |                     ^^^^^^^^^^----^
+    |                               |
+    |                               this argument influences the return type of `black_box`
+note: function defined here
+   --> /home/zajferx/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/criterion-0.5.1/src/lib.rs:167:8
+    |
+167 | pub fn black_box<T>(dummy: T) -> T {
+    |        ^^^^^^^^^
+
+error[E0061]: this method takes 4 arguments but 3 arguments were supplied
+   --> crates/phantom-circuit/benches/routing_benchmarks.rs:189:18
+    |
+189 |                   .verify_routing(
+    |  __________________^^^^^^^^^^^^^^-
+190 | |                     black_box(&path_proof),
+191 | |                     black_box(&merkle_proof_list),
+192 | |                     black_box(root),
+193 | |                 )
+    | |_________________- argument #4 of type `&CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2>` is missing
+    |
+note: method defined here
+   --> /run/media/zajferx/Data/dev/The-No-hands-Company/projects/Active/Phantom/crates/phantom-circuit/src/routing.rs:86:12
+    |
+ 86 |     pub fn verify_routing(
+    |            ^^^^^^^^^^^^^^
+help: provide the argument
+    |
+189 |                 .verify_routing(
+...
+192 |                     black_box(root),
+193 ~                     /* &CircuitData<GoldilocksField, PoseidonGoldilocksConfig, 2> */,
+194 ~                 )
+    |
+
+Some errors have detailed explanations: E0061, E0063, E0107, E0308, E0432, E0599.
+For more information about an error, try `rustc --explain E0061`.
+error: could not compile `phantom-circuit` (bench "routing_benchmarks") due to 23 previous errors

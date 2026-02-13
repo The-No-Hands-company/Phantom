@@ -1,0 +1,34 @@
+[package]
+name = "phantom-circuit"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+# Plonky2 - High-performance SNARK system (using master branch)
+plonky2 = { git = "https://github.com/mir-protocol/plonky2" }
+
+# Core dependencies
+anyhow = { workspace = true }
+serde = { workspace = true }
+bincode = "1.3"
+
+# Parallelization
+rayon = "1.10"
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "circuit_benchmarks"
+harness = false
+
+[[bench]]
+name = "routing_benchmarks"
+harness = false
