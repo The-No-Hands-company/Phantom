@@ -45,6 +45,10 @@ pub struct NetworkConfig {
     
     /// Byzantine attack configuration
     pub byzantine_config: ByzantineConfig,
+    
+    /// Simulation mode: reuse FHE keys for faster initialization
+    /// WARNING: Only use for testing! Real networks need unique keys per node.
+    pub simulation_mode: bool,
 }
 
 impl Default for NetworkConfig {
@@ -57,6 +61,7 @@ impl Default for NetworkConfig {
             packet_rate: 100,
             topology: TopologyType::Random,
             byzantine_config: ByzantineConfig::default(),
+            simulation_mode: true,  // Enable by default for fast testing
         }
     }
 }
@@ -105,6 +110,15 @@ impl SimulatedNetwork {
         tracing::info!("Initializing {} honest nodes and {} Byzantine nodes",
                       config.num_nodes - num_byzantine, num_byzantine);
         
+        // Generate shared FHE keys once if in simulation mode (HUGE speedup)
+        let shared_fhe_engine = if config.simulation_mode {
+            tracing::info!("🚀 Simulation mode: Generating shared FHE keys (1x instead of {}x)", config.num_nodes);
+            Some(FheEngine::generate_keys())
+        } else {
+            tracing::info!("Production mode: Generating unique FHE keys per node (slow)");
+            None
+        };
+        
         for i in 0..config.num_nodes {
             let node_id = (i as u32) + 1;
             
@@ -129,9 +143,13 @@ impl SimulatedNetwork {
             };
             
             // Create FHE engine for this node
-            // Note: FHE key generation is expensive (~0.8s per node)
-            // For large simulations, consider key reuse or mocking
-            let fhe_engine = FheEngine::generate_keys();
+            let fhe_engine = if let Some(ref shared_keys) = shared_fhe_engine {
+                // Simulation mode: clone shared keys (instant)
+                shared_keys.clone()
+            } else {
+                // Production mode: generate unique keys (~0.8s per node)
+                FheEngine::generate_keys()
+            };
             
             // Create simulated node
             let node = SimulatedNode::new(

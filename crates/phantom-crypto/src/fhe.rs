@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::{CryptoError, Result};
 
 /// Client key for FHE encryption/decryption
+#[derive(Clone)]
 pub struct ClientKey {
     inner: TfheClientKey,
 }
@@ -39,6 +40,7 @@ enum ValueType {
 }
 
 /// FHE engine for packet routing operations
+#[derive(Clone)]
 pub struct FheEngine {
     client_key: ClientKey,
     server_key: ServerKey,

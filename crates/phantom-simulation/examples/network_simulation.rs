@@ -52,6 +52,13 @@ fn main() -> Result<()> {
     println!("  Packet rate: {} packets/sec", config.packet_rate);
     println!("  Topology: {:?}", config.topology);
     println!("  Byzantine attacks: Mixed (drop, malicious routing, delay, forge)");
+    println!("  Simulation mode: {} (FHE key reuse)", config.simulation_mode);
+    if config.simulation_mode {
+        println!("    💡 Speedup: ~{}x faster initialization ({:.1}s → {:.1}s estimated)",
+                 config.num_nodes, 
+                 config.num_nodes as f64 * 0.8,
+                 0.8);
+    }
     println!();
 
     // Create network
