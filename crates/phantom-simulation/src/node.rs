@@ -222,6 +222,10 @@ mod tests {
     use super::*;
     use phantom_core::NetworkGraph;
     
+    fn make_test_network_graph() -> Arc<RwLock<NetworkGraph>> {
+        Arc::new(RwLock::new(NetworkGraph::new()))
+    }
+    
     #[test]
     fn test_honest_node_creation() {
         let info = NodeInfo {
@@ -232,13 +236,14 @@ mod tests {
             reputation: 0.95,
         };
         
-        let fhe = FheEngine::new().unwrap();
+        let fhe = FheEngine::generate_keys();
         let node = SimulatedNode::new(
             100,
             info,
             NodeBehavior::Honest,
             50,
             fhe,
+            make_test_network_graph(),
         );
         
         assert!(node.is_ok());

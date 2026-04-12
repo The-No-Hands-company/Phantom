@@ -43,6 +43,7 @@ fn main() -> Result<()> {
         byzantine_config: ByzantineConfig::for_attack(
             ByzantineAttack::Mixed  // Mix of attack types
         ),
+        simulation_mode: true,  // Reuse FHE keys for fast initialization
     };
 
     println!("Configuration:");
