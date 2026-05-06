@@ -34,6 +34,21 @@ PHANTOM is a ground-up redesign of anonymous networking that makes surveillance 
 4. **The Plutocracy Problem** - No staking. Sybil resistance via proof-of-personhood + rate limiting.
 5. **The Quantum Threat** - Post-quantum by default (Kyber + Dilithium + SPHINCS+).
 
+## PHANTOM's Role In Nexus Systems
+
+PHANTOM is not treated as a regular product application in the Nexus ecosystem.
+
+It is a protocol security layer that other applications and services consume.
+
+That means PHANTOM should be integrated as a transport/privacy hardening plane across:
+
+- control-plane traffic
+- service-to-service communication
+- edge and federation networking
+- secrets and trust-boundary exchanges
+
+In short: PHANTOM is the safety layer, not just another app node.
+
 ## Documentation
 
 ### 📚 Start Here
