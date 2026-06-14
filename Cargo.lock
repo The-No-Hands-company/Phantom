@@ -4090,7 +4090,9 @@ name = "phantom-node"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "clap",
+ "hex",
  "libp2p",
  "phantom-core",
  "phantom-crypto",

@@ -1,15 +1,10 @@
-//! PHANTOM Networking — libp2p transport layer.
-//! Minimal viable — compiles TCP+Noise swarm. Full gossipsub pending.
+//! PHANTOM Networking — TCP transport layer.
+//!
+//! Simple TCP listener that accepts Phantom connections.
+//! libp2p integration for gossipsub pending Behaviour trait impl.
 
 use anyhow::Result;
-use libp2p::{
-    identity::Keypair, noise, tcp, yamux,
-    swarm::NetworkBehaviour,
-    Multiaddr, PeerId, SwarmBuilder,
-};
-
-#[derive(NetworkBehaviour)]
-struct KeepAlive;
+use libp2p::{identity::Keypair, Multiaddr, PeerId};
 use tokio::sync::mpsc;
 
 pub struct PhantomNetworkConfig {
@@ -41,32 +36,31 @@ impl PhantomSwarm {
         let local_key = Keypair::generate_ed25519();
         let local_peer_id = PeerId::from(local_key.public());
 
-        let swarm_result: Result<()> = (|| {
-            let _swarm = SwarmBuilder::with_existing_identity(local_key)
-                .with_tokio()
-                .with_tcp(
-                    tcp::Config::default(),
-                    noise::Config::new,
-                    yamux::Config::default,
-                )?
-                .with_behaviour(|_| KeepAlive)?
-                .build();
-            Ok(())
-        })();
-
-        let _ = swarm_result;
-        let _ = config;
-
-        tracing::info!("Phantom swarm initialized on {}", config.listen_addr);
-        tracing::info!("Peer ID: {}", local_peer_id);
+        let port = extract_port(&config.listen_addr);
+        tracing::info!("Phantom node: {}", local_peer_id);
 
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
-        // Spawn a task that periodically sends keepalive events
+        // Start a simple TCP listener
         tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-                let _ = event_tx.send(PhantomEvent::PeerConnected(PeerId::random()));
+            let addr = format!("0.0.0.0:{}", port);
+            match tokio::net::TcpListener::bind(&addr).await {
+                Ok(listener) => {
+                    tracing::info!("✓ Listening on tcp/{}", port);
+                    loop {
+                        match listener.accept().await {
+                            Ok((_stream, _addr)) => {
+                                let _ = event_tx.send(PhantomEvent::PeerConnected(PeerId::random()));
+                            }
+                            Err(e) => {
+                                tracing::warn!("Accept error: {}", e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("⚠ Could not bind {}: {}", addr, e);
+                }
             }
         });
 
@@ -78,4 +72,14 @@ impl PhantomSwarm {
     pub async fn next_event(&mut self) -> Option<PhantomEvent> {
         self.event_rx.recv().await
     }
+}
+
+fn extract_port(addr: &Multiaddr) -> u16 {
+    use libp2p::multiaddr::Protocol;
+    for proto in addr.iter() {
+        if let Protocol::Tcp(port) = proto {
+            return port;
+        }
+    }
+    9999
 }

@@ -22,3 +22,5 @@ tracing-subscriber = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 libp2p = { workspace = true }
+blake3 = { workspace = true }
+hex = "0.4"

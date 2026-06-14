@@ -52,9 +52,6 @@ async fn main() -> Result<()> {
         tokio::select! {
             Some(event) = swarm.next_event() => {
                 match event {
-                    PhantomEvent::PacketReceived { from, packet } => {
-                        info!("Packet from {}: {} bytes", from, packet.payload.len());
-                    }
                     PhantomEvent::PeerConnected(peer) => {
                         info!("Peer {} connected", peer);
                     }
