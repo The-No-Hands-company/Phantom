@@ -63,7 +63,7 @@ ark-serialize = "0.4"
 # sp1-sdk = "1.0"
 
 # Networking
-libp2p = { version = "0.53", features = ["tcp", "quic", "noise", "gossipsub"] }
+libp2p = { version = "0.53", features = ["tcp", "quic", "noise", "gossipsub", "tokio", "yamux", "macros"] }
 quinn = "0.10"  # QUIC implementation
 
 # Rate limiting / Anonymous credentials (to be added later)

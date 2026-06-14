@@ -13,7 +13,6 @@ path = "src/main.rs"
 phantom-crypto = { path = "../phantom-crypto" }
 phantom-core = { path = "../phantom-core" }
 phantom-routing = { path = "../phantom-routing" }
-phantom-discovery = { path = "../phantom-discovery" }
 phantom-networking = { path = "../phantom-networking" }
 tokio = { workspace = true }
 anyhow = { workspace = true }

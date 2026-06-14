@@ -8,14 +8,7 @@ license.workspace = true
 [dependencies]
 phantom-core = { path = "../phantom-core" }
 phantom-crypto = { path = "../phantom-crypto" }
-phantom-routing = { path = "../phantom-routing" }
-phantom-discovery = { path = "../phantom-discovery" }
 tokio = { workspace = true }
 anyhow = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-bincode = { workspace = true }
 libp2p = { workspace = true }
-quinn = { workspace = true }
 tracing = { workspace = true }
-futures = { workspace = true }
