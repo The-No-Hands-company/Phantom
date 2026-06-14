@@ -6,6 +6,7 @@ members = [
     "crates/phantom-zkvm",
     "crates/phantom-zkvm/methods",  # RISC Zero methods package
     "crates/phantom-discovery",
+    "crates/phantom-networking",
     "crates/phantom-node",
     "crates/phantom-circuit",
     "crates/phantom-simulation",  # Phase 3 network simulation framework

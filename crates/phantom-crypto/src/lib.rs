@@ -13,7 +13,7 @@ pub mod primitives;
 
 pub use pq::{KeyPair, PublicKey, SecretKey, SharedSecret};
 pub use fhe::{FheEngine, EncryptedValue, ServerKey, ClientKey};
-pub use zk::{ProofSystem, Proof, Circuit};
+pub use zk::{ProofSystem, Proof, Circuit, RateLimitNullifier, NullifierSet};
 
 /// Re-export common types
 pub use blake3::Hash;
