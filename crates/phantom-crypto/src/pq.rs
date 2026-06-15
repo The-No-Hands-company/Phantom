@@ -21,11 +21,11 @@ pub struct KeyPair {
 
 /// Public key for Kyber-1024
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PublicKey(#[serde(with = "serde_bytes")] Vec<u8>);
+pub struct PublicKey(#[serde(with = "serde_bytes")] pub Vec<u8>);
 
 /// Secret key for Kyber-1024
 #[derive(Clone)]
-pub struct SecretKey(Vec<u8>);
+pub struct SecretKey(pub Vec<u8>);
 
 /// Shared secret from key exchange
 #[derive(Clone)]
@@ -40,15 +40,15 @@ pub struct SigningKeyPair {
 
 /// Public key for Dilithium-5
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SigningPublicKey(#[serde(with = "serde_bytes")] Vec<u8>);
+pub struct SigningPublicKey(#[serde(with = "serde_bytes")] pub Vec<u8>);
 
 /// Secret key for Dilithium-5
 #[derive(Clone)]
-pub struct SigningSecretKey(Vec<u8>);
+pub struct SigningSecretKey(pub Vec<u8>);
 
 /// Detached signature
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Signature(#[serde(with = "serde_bytes")] Vec<u8>);
+pub struct Signature(#[serde(with = "serde_bytes")] pub Vec<u8>);
 
 impl KeyPair {
     /// Generate a new post-quantum key pair
@@ -157,7 +157,21 @@ impl SigningPublicKey {
     }
 }
 
-// Security: Don't expose secret key bytes
+// Security: Don't expose secret key bytes in logs, but allow serialization
+impl SecretKey {
+    pub fn to_bytes(&self) -> &[u8] { &self.0 }
+    pub fn from_bytes(bytes: Vec<u8>) -> Self { Self(bytes) }
+}
+
+impl SigningSecretKey {
+    pub fn to_bytes(&self) -> &[u8] { &self.0 }
+    pub fn from_bytes(bytes: Vec<u8>) -> Self { Self(bytes) }
+}
+
+impl Signature {
+    pub fn to_bytes(&self) -> &[u8] { &self.0 }
+    pub fn from_bytes(bytes: Vec<u8>) -> Self { Self(bytes) }
+}
 impl std::fmt::Debug for SecretKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "SecretKey([REDACTED])")
