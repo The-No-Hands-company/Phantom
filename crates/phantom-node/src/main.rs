@@ -7,16 +7,21 @@ use anyhow::Result;
 use clap::Parser;
 use phantom_networking::{PhantomNetworkConfig, PhantomSwarm, PhantomEvent};
 use phantom_crypto::pq::{KeyPair, SigningKeyPair};
+use phantom_core::PhantomPacket;
+use std::time::Duration;
 use tracing::info;
 
 #[derive(Parser, Debug)]
-#[command(name = "phantom-node", version, about = "PHANTOM privacy network daemon")]
+#[command(name = "phantom-node", version)]
 struct Args {
     #[arg(long, default_value = "/ip4/0.0.0.0/tcp/9999")]
     listen: String,
 
     #[arg(long, default_value = "9900")]
     rpc_port: u16,
+
+    #[arg(long)]
+    connect: Option<String>,
 
     #[arg(short, long)]
     verbose: bool,
@@ -45,6 +50,27 @@ async fn main() -> Result<()> {
 
     info!("Swarm listening on {}, peer_id={}", listen_addr, swarm.local_peer_id());
     info!("RPC on 127.0.0.1:{}", args.rpc_port);
+
+    if let Some(ref peer_addr) = args.connect {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let packet = PhantomPacket {
+            routing_blob: vec![],
+            path_proof: phantom_core::proof::RoutingProof {
+                proof_data: vec![],
+                public_inputs: phantom_core::proof::PublicInputs {
+                    network_commitment: [0u8; 32], path_length: 0, timestamp: 0,
+                },
+            },
+            payload: b"Hello from Phantom! PQ encrypted packet.".to_vec(),
+            nullifier: [0u8; 32],
+            packet_id: [1u8; 32],
+        };
+        match swarm.connect_and_send(peer_addr, &packet).await {
+            Ok(_) => info!("✓ Packet sent to {}", peer_addr),
+            Err(e) => tracing::warn!("⚠ Send failed: {}", e),
+        }
+    }
+
     info!("🌐 Ready to route packets obliviously");
 
     // Main event loop

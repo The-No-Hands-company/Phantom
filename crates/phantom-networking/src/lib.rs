@@ -1,10 +1,12 @@
 //! PHANTOM Networking — TCP transport layer.
 //!
-//! Simple TCP listener that accepts Phantom connections.
-//! libp2p integration for gossipsub pending Behaviour trait impl.
+//! TCP listener + packet serialization with bincode.
 
 use anyhow::Result;
 use libp2p::{identity::Keypair, Multiaddr, PeerId};
+use phantom_core::PhantomPacket;
+use tokio::net::TcpStream;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
 
 pub struct PhantomNetworkConfig {
@@ -71,6 +73,22 @@ impl PhantomSwarm {
 
     pub async fn next_event(&mut self) -> Option<PhantomEvent> {
         self.event_rx.recv().await
+    }
+
+    /// Serialize and send a Phantom packet to a connected peer.
+    pub fn send_packet(&self, packet: &PhantomPacket) -> Result<Vec<u8>> {
+        bincode::serialize(packet).map_err(|e| anyhow::anyhow!("serialize: {}", e))
+    }
+
+    /// Connect to a peer and send a Phantom packet.
+    pub async fn connect_and_send(&self, addr: &str, packet: &PhantomPacket) -> Result<()> {
+        let data = bincode::serialize(packet)?;
+        let mut stream = TcpStream::connect(addr).await?;
+        let len = data.len() as u32;
+        stream.write_all(&len.to_le_bytes()).await?;
+        stream.write_all(&data).await?;
+        tracing::info!("Sent packet to {} ({} bytes)", addr, data.len());
+        Ok(())
     }
 }
 

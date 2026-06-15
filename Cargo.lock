@@ -4078,6 +4078,7 @@ name = "phantom-networking"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bincode",
  "libp2p",
  "phantom-core",
  "phantom-crypto",
