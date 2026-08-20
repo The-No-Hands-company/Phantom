@@ -1,4 +1,33 @@
 # PHANTOM Protocol - Development Status
+
+## ⛔ Build status: the workspace does not compile (verified 2026-08-20)
+
+`cargo build --workspace` fails. One crate, `phantom-discovery`, breaks it, so
+no crate in the workspace can be tested until it is fixed. The phase notes
+below predate this check and describe intended work, not a working build.
+
+`phantom-discovery` was written against a `phantom-core` API that does not
+exist:
+
+- `phantom_core::network::Network` is imported but never defined — the module
+  exports `NetworkGraph`, which is a different thing from the "network Merkle
+  tree" `bootstrap.rs` expects.
+- `NodeId` is used as a tuple struct (`NodeId(x)`, `node_id.0`) but is declared
+  `pub type NodeId = u32` — twice, in both `packet.rs` and `network.rs`.
+- `announcement.rs` calls `.sign()` on `KeyPair` and `.verify()` on
+  `PublicKey`. Those are Kyber KEM types; they cannot sign. Signing lives on
+  `SigningKeyPair`/`SigningPublicKey` in `phantom-crypto`.
+- `anyhow` is imported by two modules but is not a declared dependency.
+
+This is not a set of typos. The crate encodes a design — a node identity that
+carries a signing key, and a Merkle-tree view of the network — that was never
+built in `phantom-core`. Repairing it means deciding that design, not patching
+imports.
+
+Nothing consumes PHANTOM. No other application in the Nexus ecosystem declares
+it as a dependency, and it is not listed in `docs/NEXUS-ECOSYSTEM.md` or served
+anywhere on tnhc.dev.
+
 **Last Updated**: February 9, 2026 (Phase 3 - Optimization & Scaling 🚧)
 
 ## 🎯 Current Development Phase

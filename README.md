@@ -38,9 +38,11 @@ PHANTOM is a ground-up redesign of anonymous networking that makes surveillance 
 
 PHANTOM is not treated as a regular product application in the Nexus ecosystem.
 
-It is a protocol security layer that other applications and services consume.
+It is intended as a protocol security layer that other applications and
+services consume. Nothing consumes it yet, and the workspace does not
+currently compile — see [docs/STATUS.md](docs/STATUS.md).
 
-That means PHANTOM should be integrated as a transport/privacy hardening plane across:
+The intended integration surface is a transport/privacy hardening plane across:
 
 - control-plane traffic
 - service-to-service communication
