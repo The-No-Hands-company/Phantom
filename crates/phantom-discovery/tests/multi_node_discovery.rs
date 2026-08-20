@@ -9,8 +9,12 @@
 
 use phantom_discovery::{
     NetworkState, Announcer, Announcement, VerificationResult,
-    GossipProtocol, GossipMessage, BootstrapService, PeerDiscoveryService,
+    GossipMessage, BloomFilter,
+    DiscoveryService, DiscoveryConfig, DiscoveryQuery,
+    NodeAnnouncement, NodeDescriptor, NodeCapabilities,
 };
+use phantom_core::identity::NodeIdentity;
+use phantom_crypto::pq::SigningKeyPair;
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
@@ -18,8 +22,6 @@ use std::time::Instant;
 struct SimulatedNode {
     id: u64,
     announcer: Announcer,
-    gossip: GossipProtocol,
-    discovery: PeerDiscoveryService,
     network_state: NetworkState,
 }
 
@@ -29,8 +31,6 @@ impl SimulatedNode {
         Self {
             id,
             announcer: Announcer::new(10_000),
-            gossip: GossipProtocol::new(id, 50, 5),
-            discovery: PeerDiscoveryService::new(network_state.clone()),
             network_state,
         }
     }
@@ -107,10 +107,16 @@ fn test_gossip_propagation() {
     let topology = build_random_topology(50, 5);
     
     // Node 0 creates a message
-    let original_message = GossipMessage::new(
-        vec![0xCA, 0xFE, 0xBA, 0xBE],
-        0, // from node 0
-    );
+    // GossipMessage carries a batch of announcements and a bloom filter of
+    // what the sender has already seen. This test measures propagation
+    // topology rather than payload handling, so the batch is empty and the id
+    // is fixed — what matters is that the same message reaches every node.
+    let original_message = GossipMessage {
+        announcements: Vec::new(),
+        bloom_filter: BloomFilter::new(),
+        message_id: [0xCA; 16],
+        ttl: 8,
+    };
     
     let mut seen_by: HashSet<u64> = HashSet::new();
     seen_by.insert(0);
@@ -151,37 +157,113 @@ fn test_gossip_propagation() {
 }
 
 /// Test 3: Peer Discovery Query Performance
+///
+/// Rewritten against the real DiscoveryService. The previous version called
+/// `PeerDiscoveryService::register_peer` and `query_random_peers`, neither of
+/// which exists — no type by that name was ever written, so this test had
+/// never compiled, let alone measured anything.
+///
+/// The real service stores signed NodeAnnouncements and answers filtered
+/// queries, so that is what is measured here: population is excluded from the
+/// timing, and each query comes from a distinct requester because the service
+/// rate-limits to one query per IP per 10 seconds.
 #[test]
 fn test_peer_discovery_queries() {
     println!("\n=== Test 3: Peer Discovery Queries ===");
-    
-    let mut discovery = PeerDiscoveryService::new(NetworkState::new());
-    
-    // Populate with 1000 nodes
-    for i in 0..1000 {
-        let nullifier = create_nullifier(i);
-        discovery.register_peer(nullifier, vec![0xDE, 0xAD, 0xBE, 0xEF]);
+
+    let mut discovery = DiscoveryService::new(DiscoveryConfig::default());
+
+    // Populate with 200 announcements. Each one costs a Dilithium-5
+    // signature, so this is deliberately smaller than the 1000 the old test
+    // claimed to register without ever signing anything.
+    let population = 200usize;
+    for i in 0..population {
+        discovery
+            .add_announcement(build_announcement(i as u64))
+            .expect("announcement should be accepted");
     }
-    
+    assert_eq!(discovery.active_announcements(), population);
+
+    let query = || DiscoveryQuery {
+        requires_routing: Some(true),
+        requires_directory: None,
+        requires_fhe: None,
+        requires_zkvm: None,
+        min_bandwidth: None,
+        region: None,
+        limit: 10,
+        fresh_only: true,
+    };
+
     let start = Instant::now();
-    
-    // Query for 100 random peers
+
+    let queries = 100;
     let mut total_peers = 0;
-    for _ in 0..100 {
-        let peers = discovery.query_random_peers(10);
-        total_peers += peers.len();
+    for i in 0..queries {
+        // A distinct requester per query: one IP would be rate-limited after
+        // the first, and every subsequent result would be an error rather
+        // than a measurement.
+        let ip = format!("10.0.{}.{}", i / 256, i % 256);
+        let result = discovery.query(query(), &ip).expect("query should succeed");
+        total_peers += result.nodes.len();
     }
-    
+
     let elapsed = start.elapsed();
-    let avg_latency = elapsed.as_micros() / 100;
-    
+    let avg_latency = elapsed.as_micros() / queries as u128;
+
     println!("✓ Query performance");
-    println!("  Total queries: 100");
+    println!("  Total queries: {}", queries);
     println!("  Total peers returned: {}", total_peers);
     println!("  Avg latency: {}µs per query", avg_latency);
-    
-    assert!(avg_latency < 1000, "Queries should complete in <1ms");
-    assert!(total_peers >= 900, "Should return requested peers");
+
+    // Every query asked for 10 and the pool holds 200 matching nodes, so a
+    // short result means the filter or the sampling is wrong, not that the
+    // network is small.
+    assert_eq!(
+        total_peers,
+        queries * 10,
+        "each query should return its full limit from a pool of {}",
+        population
+    );
+    assert!(
+        avg_latency < 10_000,
+        "queries should stay well under 10ms; measured {}µs",
+        avg_latency
+    );
+}
+
+/// Build a signed announcement for a synthetic node.
+///
+/// Each node gets its own signing key and its own secret identity, which is
+/// what the real protocol does — the routing index is public, the identity
+/// behind the nullifier is not.
+fn build_announcement(index: u64) -> NodeAnnouncement {
+    let keypair = SigningKeyPair::generate();
+
+    let descriptor = NodeDescriptor::new(
+        keypair.public.0.clone(),
+        vec![format!("10.1.{}.{}:8080", index / 256, index % 256)
+            .parse()
+            .unwrap()],
+        1,
+        NodeCapabilities::default(),
+        1_000_000,
+        Some("us-west".to_string()),
+    );
+
+    let mut identity_bytes = [0u8; 32];
+    identity_bytes[..8].copy_from_slice(&index.to_le_bytes());
+    let identity = NodeIdentity(identity_bytes);
+
+    NodeAnnouncement::new(
+        descriptor,
+        vec![0u8; 100], // Mock membership proof
+        &identity,
+        1,
+        &[0xBBu8; 32],
+        &keypair,
+    )
+    .expect("announcement construction should succeed")
 }
 
 /// Test 4: Byzantine Attack Resistance
@@ -204,7 +286,8 @@ fn test_byzantine_attack_resistance() {
     // Honest nodes announce once
     for i in 0..70 {
         let announcement = nodes[i].create_announcement(current_epoch);
-        nodes[i].announcer.verify_and_register(&announcement, &nodes[i].network_state).unwrap();
+        let state = nodes[i].network_state.clone();
+        nodes[i].announcer.verify_and_register(&announcement, &state).unwrap();
     }
     
     // Byzantine nodes (30%) attempt spam attack
@@ -212,12 +295,13 @@ fn test_byzantine_attack_resistance() {
     for i in 70..100 {
         // First valid announcement
         let announcement = nodes[i].create_announcement(current_epoch);
-        nodes[i].announcer.verify_and_register(&announcement, &nodes[i].network_state).unwrap();
+        let state = nodes[i].network_state.clone();
+        nodes[i].announcer.verify_and_register(&announcement, &state).unwrap();
         
         // Attempt 10 spam announcements
         for _ in 0..10 {
             let announcement = nodes[i].create_announcement(current_epoch);
-            let result = nodes[i].announcer.verify_and_register(&announcement, &nodes[i].network_state).unwrap();
+            let result = nodes[i].announcer.verify_and_register(&announcement, &state).unwrap();
             if result == VerificationResult::Duplicate {
                 spam_blocked += 1;
             }
@@ -244,9 +328,16 @@ fn test_network_churn() {
     
     let mut announcer = Announcer::new(10_000);
     
+    // Epochs are wall-clock derived (unix_time / EPOCH_DURATION_SECS), and
+    // verify_and_register evicts nullifiers older than the *current* epoch.
+    // Announcing at epochs 0..10 meant every nullifier was ~2.9 million epochs
+    // stale the moment it was written, so the registry evicted all 200 and the
+    // final count was 0. The eviction was correct; the epoch numbers were toy.
+    let base_epoch = NetworkState::current_epoch();
+
     // Initial network: 100 nodes
-    for epoch in 0..10 {
-        network_state.set_epoch(epoch);
+    for epoch in base_epoch..base_epoch + 10 {
+        network_state.epoch = epoch;
         
         // 20% of nodes churn each epoch
         let churned_nodes = 20;
@@ -318,25 +409,31 @@ fn test_epoch_transition() {
     
     let mut announcer = Announcer::new(10_000);
     
-    // Nodes announce in epoch 0
+    // As in the churn test: epoch 0 is ~2.9 million epochs in the past, so an
+    // announcement stamped with it is expired on arrival and the transition
+    // being tested never gets a chance to happen.
+    let base_epoch = NetworkState::current_epoch();
+    network_state.epoch = base_epoch;
+
+    // Nodes announce in the current epoch
     for i in 0..100 {
-        let nullifier = create_nullifier_with_epoch(i, 0);
+        let nullifier = create_nullifier_with_epoch(i, base_epoch);
         let announcement = Announcement::new(
             vec![0xDE, 0xAD, 0xBE, 0xEF],
             nullifier,
-            0,
+            base_epoch,
             network_state.merkle_root,
         );
         announcer.verify_and_register(&announcement, &network_state).unwrap();
     }
     
-    // Epoch transition: same nodes announce in epoch 1
+    // Epoch transition: the same nodes announce in the next epoch
     for i in 0..100 {
-        let nullifier = create_nullifier_with_epoch(i, 1);
+        let nullifier = create_nullifier_with_epoch(i, base_epoch + 1);
         let announcement = Announcement::new(
             vec![0xDE, 0xAD, 0xBE, 0xEF],
             nullifier,
-            1,
+            base_epoch + 1,
             network_state.merkle_root,
         );
         let result = announcer.verify_and_register(&announcement, &network_state).unwrap();
@@ -367,21 +464,33 @@ fn create_nullifier_with_epoch(id: u64, epoch: u64) -> [u8; 32] {
 }
 
 /// Build random network topology
+/// A random peer graph — which this did not previously build.
+///
+/// The old version connected node `i` to `i+1 ..= i+k` (mod n): a directed
+/// ring lattice, entirely deterministic despite the name. Every edge points
+/// forward by at most `k`, so a broadcast advances `k` positions per round and
+/// needs ceil((n-1)/k) rounds — 10 for 50 nodes with 5 peers, which is exactly
+/// what the propagation test measured and exactly why its `rounds <= 8`
+/// assertion failed. That assertion was written for the graph the name
+/// describes; the graph was a worst case that gossip would never see.
+///
+/// Seeded, so the test is reproducible: an unseeded random topology would make
+/// the round count vary run to run and the assertion flaky.
 fn build_random_topology(num_nodes: usize, connections_per_node: usize) -> HashMap<u64, Vec<u64>> {
+    use rand::seq::SliceRandom;
+    use rand::SeedableRng;
+
+    let mut rng = rand::rngs::StdRng::seed_from_u64(0x9E3779B9);
     let mut topology = HashMap::new();
-    
+
     for node_id in 0..num_nodes as u64 {
-        let mut neighbors = Vec::new();
-        
-        for i in 1..=connections_per_node {
-            let neighbor = (node_id + i as u64) % num_nodes as u64;
-            if neighbor != node_id {
-                neighbors.push(neighbor);
-            }
-        }
-        
-        topology.insert(node_id, neighbors);
+        let mut candidates: Vec<u64> = (0..num_nodes as u64)
+            .filter(|&other| other != node_id)
+            .collect();
+        candidates.shuffle(&mut rng);
+        candidates.truncate(connections_per_node);
+        topology.insert(node_id, candidates);
     }
-    
+
     topology
 }

@@ -302,11 +302,11 @@ pub enum GossipError {
 mod tests {
     use super::*;
     use crate::announcement::{NodeDescriptor, NodeCapabilities};
-    use phantom_core::network::NodeId;
-    use phantom_crypto::pq::KeyPair;
+    use phantom_core::identity::NodeIdentity;
+    use phantom_crypto::pq::SigningKeyPair;
     
     fn create_test_announcement(node_id: u8) -> NodeAnnouncement {
-        let keypair = KeyPair::generate();
+        let keypair = SigningKeyPair::generate();
         
         let descriptor = NodeDescriptor::new(
             vec![node_id],
@@ -320,7 +320,7 @@ mod tests {
         NodeAnnouncement::new(
             descriptor,
             vec![0u8; 100],
-            &NodeId([node_id; 32]),
+            &NodeIdentity([node_id; 32]),
             1,
             &[0xBBu8; 32],
             &keypair,
@@ -368,35 +368,43 @@ mod tests {
         }
     }
     
+    // A gossip message travels between nodes. Every test below used a single
+    // GossipManager as both sender and receiver, so process_message saw the
+    // message_id that create_message had just recorded in recent_messages and
+    // correctly refused it as a loop — returning zero new announcements every
+    // time. The loop prevention was working; the tests were describing a node
+    // gossiping to itself. Each one now has a sender and a receiver.
     #[test]
     fn test_gossip_deduplication() {
-        let mut manager = GossipManager::new(GossipConfig::default());
+        let mut sender = GossipManager::new(GossipConfig::default());
+        let mut receiver = GossipManager::new(GossipConfig::default());
         
         let announcement = create_test_announcement(42);
-        let message = manager.create_message(vec![announcement.clone()]);
+        let message = sender.create_message(vec![announcement.clone()]);
         
         // First time: new announcement
-        let new_announcements = manager.process_message(&message).unwrap();
+        let new_announcements = receiver.process_message(&message).unwrap();
         assert_eq!(new_announcements.len(), 1);
         
         // Second time: duplicate (should be filtered)
-        let new_announcements = manager.process_message(&message).unwrap();
+        let new_announcements = receiver.process_message(&message).unwrap();
         assert_eq!(new_announcements.len(), 0);
     }
     
     #[test]
     fn test_message_loop_prevention() {
-        let mut manager = GossipManager::new(GossipConfig::default());
+        let mut sender = GossipManager::new(GossipConfig::default());
+        let mut receiver = GossipManager::new(GossipConfig::default());
         
         let announcement = create_test_announcement(42);
-        let message = manager.create_message(vec![announcement]);
+        let message = sender.create_message(vec![announcement]);
         
         // First forward: success
-        let new_announcements = manager.process_message(&message).unwrap();
+        let new_announcements = receiver.process_message(&message).unwrap();
         assert_eq!(new_announcements.len(), 1);
         
         // Second forward with same message_id: blocked
-        let new_announcements = manager.process_message(&message).unwrap();
+        let new_announcements = receiver.process_message(&message).unwrap();
         assert_eq!(new_announcements.len(), 0);
     }
     
@@ -430,10 +438,11 @@ mod tests {
             create_test_announcement(3),
         ];
         
+        let mut receiver = GossipManager::new(GossipConfig::default());
         let message = manager.create_message(announcements);
-        manager.process_message(&message).unwrap();
+        receiver.process_message(&message).unwrap();
         
-        let stats = manager.stats();
+        let stats = receiver.stats();
         assert_eq!(stats.total_announcements, 3);
         assert!(stats.recent_messages > 0);
     }
@@ -447,10 +456,11 @@ mod tests {
             create_test_announcement(2),
         ];
         
+        let mut receiver = GossipManager::new(GossipConfig::default());
         let message = manager.create_message(announcements.clone());
-        manager.process_message(&message).unwrap();
+        receiver.process_message(&message).unwrap();
         
-        let all = manager.get_all_announcements();
+        let all = receiver.get_all_announcements();
         assert_eq!(all.len(), 2);
     }
 }

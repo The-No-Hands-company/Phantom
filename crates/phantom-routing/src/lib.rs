@@ -13,6 +13,7 @@ pub mod path_validator;
 pub mod wire_format;
 pub mod forwarding_protocol;
 pub mod sparse_table;
+pub mod packet_constructor;
 
 pub use forwarder::{ObliviousForwarder, RoutingDecision, DropReason, ForwardingStats};
 pub use peer_selector::{PeerSelector, NodeInfo, NodeCapabilities, SelectionStrategy};
@@ -21,3 +22,4 @@ pub use path_validator::{PathValidator, ValidationResult, QualityMetrics, Qualit
 pub use wire_format::{WireHeader, serialize_packet, deserialize_packet, WireError, PROTOCOL_VERSION};
 pub use forwarding_protocol::{NetworkSimulator, PathTrace, PathStatus, HopResult};
 pub use sparse_table::{SparseRoutingTable, SparseRoutingEntry, SparseRoutingLookup};
+pub use packet_constructor::{PacketConstructor, PacketConstructionError};

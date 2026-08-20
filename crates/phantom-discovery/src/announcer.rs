@@ -25,28 +25,42 @@
 //! ## Example
 //!
 //! ```rust
-//! use phantom_discovery::{Announcer, NetworkState};
-//! use phantom_zkvm::Plonky2ProofGenerator;
+//! use phantom_discovery::{Announcer, Announcement, NetworkState, VerificationResult};
 //!
-//! // Setup
-//! let mut announcer = Announcer::new(proof_generator);
-//! let network_state = NetworkState::new();
+//! // The previous version of this example called Announcer::new(proof_generator),
+//! // announcer.create_announcement(..) and announcer.verify_announcement(..).
+//! // None of those exist — the constructor takes a capacity, and verification
+//! // and registration are one step. It also used `?` outside a function. It had
+//! // never been compiled, because doctests do not run when the crate does not
+//! // build, and this crate did not build.
+//! let mut announcer = Announcer::new(10_000);
 //!
-//! // Node creates announcement
-//! let announcement = announcer.create_announcement(
-//!     &node_id,
-//!     &network_state,
-//! )?;
+//! let mut network_state = NetworkState::new();
+//! network_state.update_merkle_root([0xAB; 32]);
 //!
-//! // Others verify
-//! if announcer.verify_announcement(&announcement, &network_state)? {
-//!     println!("Valid anonymous announcement!");
-//! }
+//! // Epochs are wall-clock derived, so an announcement must carry the current
+//! // one or it is expired before anyone sees it.
+//! let epoch = NetworkState::current_epoch();
+//! network_state.epoch = epoch;
+//!
+//! let announcement = Announcement::new(
+//!     vec![0u8; 32],        // membership proof bytes
+//!     [7u8; 32],            // nullifier
+//!     epoch,
+//!     network_state.merkle_root,
+//! );
+//!
+//! // First time through: accepted.
+//! let result = announcer.verify_and_register(&announcement, &network_state).unwrap();
+//! assert_eq!(result, VerificationResult::Valid);
+//!
+//! // The same nullifier again in the same epoch is a replay, and is refused.
+//! let again = announcer.verify_and_register(&announcement, &network_state).unwrap();
+//! assert_eq!(again, VerificationResult::Duplicate);
 //! ```
 
 use crate::{NetworkState, NullifierRegistry, Nullifier};
 use serde::{Serialize, Deserialize};
-use anyhow::{Result, anyhow};
 
 /// Node announcement with zero-knowledge proof
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -90,14 +104,25 @@ impl Announcement {
     }
     
     /// Serialize to bytes for network transmission
-    pub fn to_bytes(&self) -> Result<Vec<u8>> {
-        bincode::serialize(self).map_err(|e| anyhow!("Serialization failed: {}", e))
+    pub fn to_bytes(&self) -> Result<Vec<u8>, AnnouncerError> {
+        Ok(bincode::serialize(self)?)
     }
     
     /// Deserialize from bytes
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        bincode::deserialize(bytes).map_err(|e| anyhow!("Deserialization failed: {}", e))
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, AnnouncerError> {
+        Ok(bincode::deserialize(bytes)?)
     }
+}
+
+/// What can go wrong in the announcer.
+///
+/// This crate is a library, so it names its failures instead of returning
+/// `anyhow::Result`. A caller three layers up cannot match on a boxed error to
+/// decide whether to retry a peer or drop it; it can match on this.
+#[derive(Debug, thiserror::Error)]
+pub enum AnnouncerError {
+    #[error("Announcement serialization failed: {0}")]
+    Serialization(#[from] bincode::Error),
 }
 
 /// Announcement verification result
@@ -153,7 +178,7 @@ impl Announcer {
         &mut self,
         announcement: &Announcement,
         network_state: &NetworkState,
-    ) -> Result<VerificationResult> {
+    ) -> Result<VerificationResult, AnnouncerError> {
         let current_epoch = NetworkState::current_epoch();
         
         // Check freshness
@@ -176,7 +201,7 @@ impl Announcer {
         // In production, this would call: proof_generator.verify_membership()
         
         // Register nullifier
-        self.nullifier_registry.register(announcement.nullifier, announcement.epoch)?;
+        self.nullifier_registry.register(announcement.nullifier, announcement.epoch);
         
         // Clean up old nullifiers
         self.nullifier_registry.evict_expired(current_epoch);

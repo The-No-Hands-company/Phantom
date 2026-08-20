@@ -255,9 +255,16 @@ mod tests {
         let (simulator, nodes) = create_test_network();
         let fhe_engine = simulator.fhe_engine.clone();
         
-        // Create a 2-hop path: 100 -> 101
-        let path = RoutingPath::new(vec![100, 101]).unwrap(); // Will fail - needs 3 hops minimum
-        assert!(path.is_err()); // Path validation requires 3+ hops
+        // A 2-hop path must be rejected: anonymity needs at least 3.
+        //
+        // This previously called .unwrap() on the Result and then .is_err() on
+        // the unwrapped RoutingPath. The unwrap would have panicked on the very
+        // rejection the assertion was checking for — and the assertion itself
+        // did not typecheck, so this test had never been compiled.
+        assert!(
+            RoutingPath::new(vec![100, 101]).is_err(),
+            "path validation requires 3+ hops"
+        );
         
         // Create valid 3-hop path: 100 -> 101 -> 102
         let path = RoutingPath::new(vec![100, 101, 102]).unwrap();

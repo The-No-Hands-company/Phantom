@@ -11,24 +11,28 @@ use phantom_discovery::{
     BootstrapClient, BootstrapConfig,
     NodeDescriptor, NodeCapabilities,
 };
+use phantom_core::identity::NodeIdentity;
 use phantom_core::network::NodeId;
-use phantom_crypto::pq::KeyPair;
+use phantom_crypto::pq::SigningKeyPair;
 
 fn main() {
     println!("=== PHANTOM Bootstrap Protocol Demo ===\n");
     
     // 1. Generate node identity
     println!("1. Generating node identity...");
-    let keypair = KeyPair::generate();
-    let node_id = NodeId(blake3::hash(b"new-phantom-node").into());
+    let keypair = SigningKeyPair::generate();
+    // The routing index the graph and Merkle tree key on...
+    let node_id: NodeId = 1;
+    // ...and the secret this node proves control of without revealing.
+    let identity = NodeIdentity(blake3::hash(b"new-phantom-node").into());
     
-    println!("   ✓ Node ID: {:?}...", &node_id.0[..8]);
+    println!("   ✓ Node ID: {} (identity {:?})", node_id, identity);
     println!("   ✓ Public key generated\n");
     
     // 2. Create node descriptor
     println!("2. Creating node descriptor...");
     let descriptor = NodeDescriptor::new(
-        keypair.public.to_bytes().to_vec(),
+        keypair.public.0.clone(),
         vec!["10.0.1.42:8080".parse().unwrap()],
         1, // Protocol version
         NodeCapabilities {
@@ -66,6 +70,7 @@ fn main() {
     println!("4. Creating bootstrap client...");
     let client = BootstrapClient::new(
         node_id,
+        identity,
         keypair,
         descriptor,
         config,
@@ -96,8 +101,8 @@ fn main() {
     println!();
     
     println!("   Network topology:");
-    println!("     - Downloaded {} nodes", result.network.nodes.len());
-    println!("     - Merkle tree depth: {}", (result.network.nodes.len() as f64).log2().ceil() as usize);
+    println!("     - Downloaded {} nodes", result.network.node_count());
+    println!("     - Merkle tree depth: {}", (result.network.node_count() as f64).log2().ceil() as usize);
     println!();
     
     println!("   Announcement:");

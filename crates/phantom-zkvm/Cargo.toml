@@ -25,6 +25,9 @@ risc0-zkvm = { version = "3.0", features = ["prove", "std"] }
 
 [dev-dependencies]
 criterion = { workspace = true }
+# examples/end_to_end_demo.rs imports phantom_routing; examples build against
+# dev-dependencies, and this was never declared, so that example never compiled.
+phantom-routing = { path = "../phantom-routing" }
 
 [[bench]]
 name = "zkvm_benchmarks"

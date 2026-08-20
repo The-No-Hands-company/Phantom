@@ -11,8 +11,8 @@ use phantom_discovery::{
     NodeAnnouncement, NodeDescriptor, NodeCapabilities,
     NetworkState,
 };
-use phantom_core::network::NodeId;
-use phantom_crypto::pq::KeyPair;
+use phantom_core::identity::NodeIdentity;
+use phantom_crypto::pq::SigningKeyPair;
 use rand::Rng;
 
 fn main() {
@@ -225,10 +225,10 @@ fn create_announcement(
     capabilities: NodeCapabilities,
     node_index: u64,
 ) -> NodeAnnouncement {
-    let keypair = KeyPair::generate();
+    let keypair = SigningKeyPair::generate();
     
     let descriptor = NodeDescriptor::new(
-        keypair.public.to_bytes().to_vec(),
+        keypair.public.0.clone(),
         vec![format!("10.0.{}.{}:8080", node_index / 256, node_index % 256).parse().unwrap()],
         1,
         capabilities,
@@ -238,7 +238,7 @@ fn create_announcement(
     
     let mut node_id_bytes = [0u8; 32];
     node_id_bytes[..8].copy_from_slice(&node_index.to_le_bytes());
-    let node_id = NodeId(node_id_bytes);
+    let node_id = NodeIdentity(node_id_bytes);
     
     let membership_proof = vec![0u8; 100]; // Mock proof (would be real Plonky2 proof)
     

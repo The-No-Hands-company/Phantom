@@ -7,8 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 use blake3::Hash;
-use phantom_core::network::NodeId;
-use phantom_crypto::pq::{KeyPair, PublicKey, Signature};
+use phantom_core::identity::NodeIdentity;
+use phantom_crypto::pq::{SigningKeyPair, SigningPublicKey, Signature};
 use std::net::SocketAddr;
 
 /// Anonymous node announcement message
@@ -78,10 +78,10 @@ impl NodeAnnouncement {
     pub fn new(
         descriptor: NodeDescriptor,
         membership_proof: Vec<u8>,
-        node_id: &NodeId,
+        node_id: &NodeIdentity,
         epoch: u64,
         network_commitment: &[u8; 32],
-        signing_key: &KeyPair,
+        signing_key: &SigningKeyPair,
     ) -> Result<Self, AnnouncementError> {
         // Compute nullifier: H(node_id || epoch || network_commitment)
         let nullifier = Self::compute_nullifier(node_id, epoch, network_commitment);
@@ -94,8 +94,10 @@ impl NodeAnnouncement {
         ))?;
         
         // Sign with Dilithium-5 (post-quantum signature)
-        let signature_bytes = signing_key.sign(&announcement_data);
-        let signature = bincode::serialize(&signature_bytes)?;
+        let detached = signing_key
+            .sign(&announcement_data)
+            .map_err(|e| AnnouncementError::Crypto(e.to_string()))?;
+        let signature = bincode::serialize(&detached)?;
         
         Ok(Self {
             descriptor,
@@ -112,7 +114,7 @@ impl NodeAnnouncement {
     /// Verify announcement signature and membership proof
     pub fn verify(
         &self,
-        verification_key: &PublicKey,
+        verification_key: &SigningPublicKey,
         network_commitment: &[u8; 32],
     ) -> Result<(), AnnouncementError> {
         // Verify signature
@@ -125,7 +127,9 @@ impl NodeAnnouncement {
         let signature: Signature = bincode::deserialize(&self.signature)
             .map_err(|_| AnnouncementError::InvalidSignature)?;
         
-        if !verification_key.verify(&announcement_data, &signature) {
+        let ok = SigningKeyPair::verify(verification_key, &announcement_data, &signature)
+            .map_err(|e| AnnouncementError::Crypto(e.to_string()))?;
+        if !ok {
             return Err(AnnouncementError::InvalidSignature);
         }
         
@@ -138,12 +142,12 @@ impl NodeAnnouncement {
     
     /// Compute nullifier for rate limiting
     pub fn compute_nullifier(
-        node_id: &NodeId,
+        node_id: &NodeIdentity,
         epoch: u64,
         network_commitment: &[u8; 32],
     ) -> [u8; 32] {
         let mut hasher = blake3::Hasher::new();
-        hasher.update(&node_id.0);
+        hasher.update(node_id.as_bytes());
         hasher.update(&epoch.to_le_bytes());
         hasher.update(network_commitment);
         *hasher.finalize().as_bytes()
@@ -210,6 +214,12 @@ pub enum AnnouncementError {
     
     #[error("Invalid signature")]
     InvalidSignature,
+
+    /// The signature scheme itself failed — a malformed key, or a signing
+    /// operation that could not complete. Distinct from InvalidSignature,
+    /// which means the signature was well-formed and did not match.
+    #[error("Cryptographic operation failed: {0}")]
+    Crypto(String),
     
     #[error("Invalid membership proof")]
     InvalidMembershipProof,
@@ -230,7 +240,7 @@ mod tests {
     
     #[test]
     fn test_nullifier_computation() {
-        let node_id = NodeId([42u8; 32]);
+        let node_id = NodeIdentity([42u8; 32]);
         let epoch = 12345u64;
         let network_commitment = [0xAAu8; 32];
         
@@ -263,7 +273,7 @@ mod tests {
     
     #[test]
     fn test_announcement_signature() {
-        let keypair = KeyPair::generate();
+        let keypair = SigningKeyPair::generate();
         
         let descriptor = NodeDescriptor::new(
             vec![1, 2, 3, 4],
@@ -274,7 +284,7 @@ mod tests {
             None,
         );
         
-        let node_id = NodeId([42u8; 32]);
+        let node_id = NodeIdentity([42u8; 32]);
         let epoch = 1;
         let network_commitment = [0xBBu8; 32];
         let membership_proof = vec![0u8; 100]; // Mock proof
@@ -292,13 +302,13 @@ mod tests {
         assert!(announcement.verify(&keypair.public, &network_commitment).is_ok());
         
         // Wrong key fails
-        let wrong_keypair = KeyPair::generate();
+        let wrong_keypair = SigningKeyPair::generate();
         assert!(announcement.verify(&wrong_keypair.public, &network_commitment).is_err());
     }
     
     #[test]
     fn test_announcement_freshness() {
-        let keypair = KeyPair::generate();
+        let keypair = SigningKeyPair::generate();
         
         let descriptor = NodeDescriptor::new(
             vec![1, 2, 3, 4],
@@ -312,7 +322,7 @@ mod tests {
         let mut announcement = NodeAnnouncement::new(
             descriptor,
             vec![0u8; 100],
-            &NodeId([42u8; 32]),
+            &NodeIdentity([42u8; 32]),
             1,
             &[0xBBu8; 32],
             &keypair,

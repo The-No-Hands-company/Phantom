@@ -326,7 +326,7 @@ impl Default for PathValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::peer_selector::NodeCapabilities;
+    use crate::peer_selector::{NodeCapabilities, NodeInfo};
     use crate::path_builder::PathBuilder;
 
     fn create_test_node(id: u8, bandwidth: f64, reliability: f64) -> NodeInfo {

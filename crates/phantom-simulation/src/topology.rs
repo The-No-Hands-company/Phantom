@@ -211,8 +211,12 @@ mod tests {
         let stats = graph.stats();
         
         assert_eq!(stats.node_count, 10);
-        // Mesh should have n*(n-1) edges (bidirectional)
-        assert_eq!(stats.edge_count, 10 * 9);
+        // A complete graph on n nodes has n*(n-1)/2 edges. This asserted
+        // n*(n-1) — the number of *directed* adjacency entries, which is
+        // double the edge count stats() reports. The test never ran: the
+        // workspace test build aborted on phantom-discovery long before
+        // reaching this crate.
+        assert_eq!(stats.edge_count, 10 * 9 / 2);
     }
     
     #[test]
@@ -222,7 +226,8 @@ mod tests {
         let stats = graph.stats();
         
         assert_eq!(stats.node_count, 10);
-        // Ring should have 2n edges (bidirectional)
-        assert_eq!(stats.edge_count, 20);
+        // A ring of n nodes has n edges, not 2n. Each node has two
+        // neighbours, which is 2n adjacency entries and n edges.
+        assert_eq!(stats.edge_count, 10);
     }
 }

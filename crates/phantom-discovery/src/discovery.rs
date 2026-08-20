@@ -166,14 +166,25 @@ impl DiscoveryService {
         let mut selected = matching;
         selected.shuffle(&mut rng);
         
-        // Limit results
         let limit = query.limit.min(self.config.max_results);
-        selected.truncate(limit);
         
-        // Apply diversity preference if enabled
-        let nodes = if self.config.prefer_diversity && selected.len() > limit / 2 {
+        // Diversity selection has to see the whole matching set.
+        //
+        // This used to truncate to `limit` first and then call
+        // select_diverse_nodes on the survivors — which left that function
+        // choosing `limit` nodes out of exactly `limit` candidates, so it
+        // returned the random sample it was given and the regional balancing
+        // never happened. prefer_diversity defaults to true, so the feature
+        // was on, inert, and untested in a way no assertion caught until the
+        // suite could run.
+        //
+        // The shuffle above still matters: it decides which node is picked
+        // within a region, so results stay unpredictable and topology stays
+        // un-inferable. Only the truncation moved.
+        let nodes = if self.config.prefer_diversity {
             self.select_diverse_nodes(&selected, limit)
         } else {
+            selected.truncate(limit);
             selected.into_iter()
                 .map(|a| a.descriptor.clone())
                 .collect()
@@ -345,16 +356,32 @@ pub enum DiscoveryError {
 mod tests {
     use super::*;
     use crate::announcement::{NodeAnnouncement, NodeDescriptor, NodeCapabilities};
-    use phantom_core::network::NodeId;
-    use phantom_crypto::pq::KeyPair;
+    use phantom_core::identity::NodeIdentity;
+    use phantom_crypto::pq::SigningKeyPair;
     use std::net::SocketAddr;
     
+    /// Distinct identity per announcement.
+    ///
+    /// Every call used to hard-code `NodeIdentity([42u8; 32])`, so each
+    /// announcement hashed to the same nullifier and the service correctly
+    /// rejected all but the first as a duplicate. The service was right; the
+    /// helper was wrong. A counter gives each synthetic node its own identity,
+    /// which is what distinct nodes have.
+    fn next_identity() -> NodeIdentity {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let mut bytes = [0u8; 32];
+        bytes[..8].copy_from_slice(&n.to_le_bytes());
+        NodeIdentity(bytes)
+    }
+
     fn create_test_announcement(
         region: Option<String>,
         bandwidth: u64,
         capabilities: NodeCapabilities,
     ) -> NodeAnnouncement {
-        let keypair = KeyPair::generate();
+        let keypair = SigningKeyPair::generate();
         
         let descriptor = NodeDescriptor::new(
             vec![1, 2, 3, 4],
@@ -368,7 +395,7 @@ mod tests {
         NodeAnnouncement::new(
             descriptor,
             vec![0u8; 100], // Mock membership proof
-            &NodeId([42u8; 32]),
+            &next_identity(),
             1,
             &[0xBBu8; 32],
             &keypair,

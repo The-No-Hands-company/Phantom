@@ -26,7 +26,7 @@ pub mod bootstrap;
 
 pub use state::{NetworkState, EPOCH_DURATION_SECS, current_timestamp};
 pub use nullifiers::{NullifierRegistry, Nullifier};
-pub use announcer::{Announcer, Announcement, VerificationResult};
+pub use announcer::{Announcer, Announcement, AnnouncerError, VerificationResult};
 pub use announcement::{NodeAnnouncement, NodeDescriptor, NodeCapabilities};
 pub use gossip::{GossipManager, GossipMessage, GossipConfig, BloomFilter};
 pub use discovery::{DiscoveryService, DiscoveryConfig, DiscoveryQuery, DiscoveryResult, DiscoveryError};

@@ -4156,6 +4156,7 @@ dependencies = [
  "phantom-circuit",
  "phantom-core",
  "phantom-crypto",
+ "phantom-routing",
  "phantom-zkvm-methods",
  "plonky2 1.1.0",
  "rand 0.8.5",

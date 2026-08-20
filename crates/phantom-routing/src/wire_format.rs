@@ -286,11 +286,20 @@ mod tests {
     
     #[test]
     fn test_wire_header_serialization() {
+        // A header has to satisfy two independent checks, and the original
+        // test data satisfied neither. packet_length must equal the sum of the
+        // parts — 20 (header) + blob + proof + payload + 32 (nullifier) — and
+        // the total must be at least MIN_PACKET_SIZE (1024), which exists so a
+        // packet's length cannot itself leak how much traffic a node is
+        // carrying. 512 + 384 + 128 satisfies both: 20 + 1024 + 32 = 1076.
+        //
+        // The original declared 2048 against parts totalling 948 and then
+        // unwrapped, so it failed the moment the crate could compile.
         let header = WireHeader {
             version: 1,
-            packet_length: 2048,
+            packet_length: 1076,
             routing_blob_length: 512,
-            proof_length: 256,
+            proof_length: 384,
             payload_length: 128,
             reserved: [0; 3],
         };
@@ -304,6 +313,33 @@ mod tests {
         assert_eq!(deserialized.routing_blob_length, header.routing_blob_length);
         assert_eq!(deserialized.proof_length, header.proof_length);
         assert_eq!(deserialized.payload_length, header.payload_length);
+    }
+
+    #[test]
+    fn inconsistent_packet_length_is_rejected() {
+        // The invariant the previous test was accidentally violating is worth
+        // asserting deliberately. A header whose declared total disagrees with
+        // its parts is how a parser gets walked past the end of a buffer, or
+        // handed a truncated packet it believes is whole.
+        let header = WireHeader {
+            version: 1,
+            packet_length: 2048, // components below total 948
+            routing_blob_length: 512,
+            proof_length: 256,
+            payload_length: 128,
+            reserved: [0; 3],
+        };
+
+        let err = WireHeader::from_bytes(&header.to_bytes())
+            .expect_err("a header that misdeclares its own length must not parse");
+
+        assert!(
+            matches!(
+                err,
+                WireError::InvalidLength { expected: 948, actual: 2048 }
+            ),
+            "expected an InvalidLength naming both values, got {err:?}"
+        );
     }
     
     #[test]

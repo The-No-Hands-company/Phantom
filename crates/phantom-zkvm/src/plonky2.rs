@@ -130,6 +130,50 @@ impl Plonky2ProofGenerator {
         Ok(())
     }
 
+    /// Commit to a set of node identities, caching a Merkle proof for each.
+    ///
+    /// Use this with [`Self::prove_membership`]. The two must agree on how a
+    /// leaf is derived, and they did not: `initialize_network` encodes a `u32`
+    /// directly into a field element, while `prove_membership` looks the leaf
+    /// up as `PoseidonHash(bytes_to_fields(identity))`. Those are different
+    /// values for the same node, so a lookup after `initialize_network` always
+    /// returned "Node not found in network" — the membership proof path could
+    /// never resolve a witness for anybody. It went unnoticed because the only
+    /// test exercising it had never compiled.
+    ///
+    /// Leaves here are built with the same `hash_node_id` the lookup uses, so
+    /// a node committed through this function can actually be proven.
+    pub fn commit_to_identities(&mut self, identities: &[[u8; 32]]) -> Result<()> {
+        let leaves: Vec<HashOut<F>> =
+            identities.iter().map(|id| self.hash_node_id(id)).collect();
+
+        let (root, proofs_map) = MerkleCircuit::build_tree(&leaves);
+        self.merkle_root = Some(root);
+        self.merkle_proofs_cache = proofs_map;
+        Ok(())
+    }
+
+    /// Commit to a network graph, caching a Merkle proof for every member.
+    ///
+    /// NOTE: this commits to *routing indices* (`NodeId`, a u32), which is not
+    /// the representation [`Self::prove_membership`] queries. It is useful for
+    /// committing to topology; it cannot be used to prove membership of a
+    /// secret identity. Use [`Self::commit_to_identities`] for that.
+    ///
+    /// This is the adapter between the routing layer's view of the network and
+    /// this prover's. `initialize_network` wants a flat list of node ids;
+    /// callers hold a `NetworkGraph`. Without this they had to reach into the
+    /// graph's internals to produce that list — which they could not do,
+    /// because `nodes` is private, so the call simply did not exist and the
+    /// end-to-end test that assumed it had never compiled.
+    ///
+    /// Leaf order comes from `NetworkGraph::node_ids`, which sorts. That
+    /// matters: two nodes committing to the same membership must derive the
+    /// same root, and HashMap iteration order would give them different ones.
+    pub fn commit_to_network(&mut self, network: &phantom_core::NetworkGraph) -> Result<()> {
+        self.initialize_network(&network.node_ids())
+    }
+
     /// Get Merkle root (network commitment)
     pub fn get_merkle_root(&self) -> Option<[u8; 32]> {
         self.merkle_root.as_ref().map(|root| {

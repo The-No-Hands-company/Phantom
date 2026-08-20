@@ -1,34 +1,134 @@
 # PHANTOM Protocol - Development Status
 
-## ⛔ Build status: the workspace does not compile (verified 2026-08-20)
+## Build status: the workspace compiles and its tests run (2026-08-20)
 
-`cargo build --workspace` fails. One crate, `phantom-discovery`, breaks it, so
-no crate in the workspace can be tested until it is fixed. The phase notes
-below predate this check and describe intended work, not a working build.
+`cargo build --workspace` passes. This is new. Earlier the same day it did not,
+and because `phantom-discovery` was a workspace member, no crate in the
+workspace could be tested at all.
 
-`phantom-discovery` was written against a `phantom-core` API that does not
-exist:
+Four integration test files totalling 1,228 lines had never been compiled, let
+alone run. Once they could run, they failed — and the failures were real. What
+follows is what was wrong, because a list of fixed bugs is more useful to the
+next person than a green tick.
 
-- `phantom_core::network::Network` is imported but never defined — the module
-  exports `NetworkGraph`, which is a different thing from the "network Merkle
-  tree" `bootstrap.rs` expects.
-- `NodeId` is used as a tuple struct (`NodeId(x)`, `node_id.0`) but is declared
-  `pub type NodeId = u32` — twice, in both `packet.rs` and `network.rs`.
-- `announcement.rs` calls `.sign()` on `KeyPair` and `.verify()` on
-  `PublicKey`. Those are Kyber KEM types; they cannot sign. Signing lives on
-  `SigningKeyPair`/`SigningPublicKey` in `phantom-crypto`.
-- `anyhow` is imported by two modules but is not a declared dependency.
+### What was broken, and what it means
 
-This is not a set of typos. The crate encodes a design — a node identity that
-carries a signing key, and a Merkle-tree view of the network — that was never
-built in `phantom-core`. Repairing it means deciding that design, not patching
-imports.
+**The node identity was brute-forceable.** `phantom-core` declared
+`NodeId = u32` and discovery used that value as the nullifier preimage:
+`H(node_id || epoch || network_commitment)`. Both epoch and commitment are
+public. A 32-bit identity means enumerating 2^32 candidates against a published
+nullifier — minutes of GPU time to deanonymise every node on the network. The
+nullifier exists to stop double-announcements *without* revealing who
+announced; a guessable preimage keeps the cost and drops the anonymity.
+`NodeIdentity` is now 32 secret bytes, and `NodeId` remains the public routing
+index it always was. They are different things and now have different types.
 
-Nothing consumes PHANTOM. No other application in the Nexus ecosystem declares
-it as a dependency, and it is not listed in `docs/NEXUS-ECOSYSTEM.md` or served
-anywhere on tnhc.dev.
+**Announcements were signed with a key that cannot sign.** `announcement.rs`
+called `.sign()` on a Kyber KEM keypair. The comment said Dilithium-5
+throughout, so the intent was never in doubt — it was simply never wired to
+`SigningKeyPair`.
 
-**Last Updated**: February 9, 2026 (Phase 3 - Optimization & Scaling 🚧)
+**`BootstrapConfig::default()` panicked on every call.** It parsed
+`"bootstrap1.phantom.network:8080"` as a `SocketAddr`, which accepts literal IP
+addresses only, and unwrapped the error. Any node starting with default
+settings died on that line. Bootstrap addresses are `String` now, resolved at
+connect time — which also means an operator can move a bootstrap node without
+every client shipping a new binary.
+
+**`bootstrap()` could not succeed even against its own mock.** It advertised
+`merkle_root: [0xAA; 32]` and then verified that against a real blake3
+commitment over a 100-node graph. Guaranteed mismatch, every time. Both sides
+now derive from the same tree, so the verification step stays a real check
+rather than being deleted to get past it.
+
+**`prefer_diversity` was on by default and did nothing.** The query path
+truncated results to `limit` *before* calling `select_diverse_nodes`, so that
+function chose `limit` nodes from exactly `limit` candidates and returned the
+random sample it was handed. Regional balancing never ran.
+
+**`NullifierRegistry::register` returned `Result<bool>` with no `Err` arm
+anywhere in its body** — every caller handling a failure that could not occur.
+It returns `bool`. `anyhow` in the public API of a library was replaced with
+concrete error types.
+
+**The wire format's two size invariants were both violated by its own test.** A
+header must declare a total equal to the sum of its parts *and* meet
+`MIN_PACKET_SIZE`, the second so a packet's length cannot itself leak how much
+traffic a node carries. The test satisfied neither and unwrapped the result.
+There is now a test asserting the rejection deliberately.
+
+**`build_random_topology` contained no randomness.** It connected node `i` to
+`i+1 ..= i+5` (mod n) — a directed ring lattice. A broadcast advances 5
+positions per round, so covering 50 nodes takes exactly 10 rounds, which is why
+the propagation test's `rounds <= 8` assertion failed. The assertion was right
+for the graph the name promised.
+
+**Test epochs were toy values against a wall-clock system.** Epochs derive from
+`unix_time / EPOCH_DURATION_SECS`. Tests announcing at epochs 0-9 were writing
+nullifiers roughly 2.9 million epochs stale, so the registry evicted all of
+them and the epoch-transition behaviour under test never got a chance to occur.
+
+**Two topology tests asserted directed adjacency counts under a field named
+`edge_count`.** A complete graph on 10 nodes has 45 edges and a 10-node ring
+has 10; the tests wanted 90 and 20.
+
+**Three types the integration test imported had never been written**
+(`GossipProtocol`, `BootstrapService`, `PeerDiscoveryService`). Two were dead
+fields nothing read. The third backed a test of a service that does not exist,
+now rewritten against the real `DiscoveryService`.
+
+**Four gossip tests used one manager as both sender and receiver**, so loop
+prevention correctly rejected everything and they measured nothing.
+
+### The integration seam, now written
+
+`PacketConstructor` (phantom-routing) and
+`Plonky2ProofGenerator::commit_to_network` (phantom-zkvm) were referred to by
+the end-to-end test and did not exist, which is why that test had never
+compiled. Both are thin: `PhantomPacket::construct` already did the FHE work
+and `initialize_network` already cached Merkle proofs — what was missing was
+the piece owning all three components at once.
+
+`PacketConstructor` reads the network commitment at call time rather than
+caching it. Membership changes as nodes join, and a packet built against a
+stale root is refused by the first relay that checks it, so a cached copy would
+be a bug that only appears under churn. `commitment_is_current()` exists so a
+caller can detect that the prover's cached proofs have gone stale.
+
+### What is still not true
+
+**Packet payloads are not encrypted.** `PhantomPacket::construct` documents
+four steps and implements one. The routing table is genuinely FHE-encrypted, so
+a relay cannot learn the route. The payload is stored verbatim, the zk path
+proof is a placeholder, and the nullifier is `hash(packet_id)` — which prevents
+nothing, since a fresh packet id yields a fresh nullifier.
+
+This matters because the README says nodes "route packets they literally cannot
+decrypt" and "No exits - FHE computation on encrypted data". That is true of
+routing metadata and false of the payload, and the difference is the entire
+threat model. There is an ignored test,
+`payload_is_not_readable_on_the_wire`, holding the requirement open: remove the
+`#[ignore]` when step 3 lands and it should pass unchanged.
+
+**The only path-proof implementation is `HashProofGenerator`**, whose own
+documentation says it is hash-based and not zero-knowledge.
+
+**Nothing consumes PHANTOM.** No manifest in the Nexus ecosystem declares it,
+and it is not deployed anywhere. It is registered in
+`docs/NEXUS-ECOSYSTEM.md` as of 2026-08-20, having been absent from that
+document entirely until then.
+
+### Build hygiene
+
+`[profile.dev]` set `opt-level` but never set `debug`, defaulting to full debug
+symbols for every crate including dependencies compiled at `opt-level = 3`.
+`target/` reached **101.8 GiB across 70,511 files**, filled the volume that also
+runs production, and killed the process serving `cloud.tnhc.dev`. With
+`debug = "line-tables-only"` for workspace crates and `debug = false` for
+dependencies, the same build produces **3.3 GiB**. Do not restore
+`debug = true` without knowing that.
+
+The phase notes below predate all of this and describe intended work.
 
 ## 🎯 Current Development Phase
 **Phase: Phase 3 - Optimization & Scaling** 🚧 (Week 9-14: Feb-Mar 2026)  

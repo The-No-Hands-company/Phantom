@@ -76,6 +76,46 @@ impl NetworkGraph {
     }
     
     /// Get the Merkle root commitment of the network
+    /// Number of nodes currently in the graph.
+    ///
+    /// `nodes` is private, so callers that only need the size had no way to
+    /// ask without exposing the whole map.
+    pub fn node_count(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Number of undirected edges in the graph.
+    ///
+    /// Adjacency is stored in both directions, so the raw entry count is
+    /// double the number of edges: this halves it, matching
+    /// [`NetworkStats::edge_count`]. A 10-node ring has 10 edges and a
+    /// complete graph on 10 nodes has 45, which are the answers graph theory
+    /// gives and the answers `stats()` already gave.
+    ///
+    /// Having this disagree with `stats().edge_count` would be worse than not
+    /// having it — two methods with the same name and different answers is a
+    /// bug waiting for whoever calls the wrong one.
+    pub fn edge_count(&self) -> usize {
+        self.edges.values().map(|peers| peers.len()).sum::<usize>() / 2
+    }
+
+    /// Every node id in the graph, ascending.
+    ///
+    /// Sorted rather than in HashMap order: callers that build a Merkle tree
+    /// from this need the leaf order to be reproducible, or two nodes with
+    /// identical membership compute different roots and never agree.
+    pub fn node_ids(&self) -> Vec<NodeId> {
+        let mut ids: Vec<NodeId> = self.nodes.keys().copied().collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// A single path from `source` to `dest`, or None if they are not
+    /// connected. Convenience over [`Self::k_shortest_paths`].
+    pub fn find_path(&self, source: NodeId, dest: NodeId) -> Option<Vec<NodeId>> {
+        self.k_shortest_paths(source, dest, 1).into_iter().next()
+    }
+
     pub fn commitment(&self) -> &[u8; 32] {
         self.merkle_tree.root()
     }

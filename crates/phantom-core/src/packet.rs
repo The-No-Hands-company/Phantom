@@ -193,8 +193,23 @@ impl PhantomPacket {
     /// This is where the magic happens:
     /// 1. Encrypt the routing table using FHE
     /// 2. Generate zk-proof of path validity
-    /// 3. Encrypt the payload
-    /// 4. Generate rate-limiting nullifier
+    /// 3. Encrypt the payload — NOT IMPLEMENTED, see below
+    /// 4. Generate rate-limiting nullifier — NOT IMPLEMENTED, see below
+    ///
+    /// # What this actually does today
+    ///
+    /// Only step 1 is real. The routing table is genuinely FHE-encrypted, so a
+    /// relay cannot learn the route from a packet it forwards.
+    ///
+    /// The payload is stored verbatim. A relay carrying a packet can read its
+    /// contents. The zk path proof is a placeholder, and the nullifier is
+    /// `hash(packet_id)` rather than an RLN nullifier, so it prevents nothing:
+    /// a fresh packet id yields a fresh nullifier.
+    ///
+    /// This matters because the project's README says nodes "route packets
+    /// they literally cannot decrypt". That is true of the routing metadata
+    /// and false of the payload, and the difference is the whole threat model.
+    /// Do not treat a PhantomPacket as confidential until step 3 lands.
     pub fn construct(
         path: RoutingPath,
         payload: Vec<u8>,

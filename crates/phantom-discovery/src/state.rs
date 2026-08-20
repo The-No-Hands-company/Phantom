@@ -163,14 +163,21 @@ mod tests {
         let mut state = NetworkState::new();
         let initial_update = state.last_update;
         
-        // Wait a bit to ensure timestamp changes
-        std::thread::sleep(std::time::Duration::from_millis(10));
-        
         let new_root = [42u8; 32];
         state.update_merkle_root(new_root);
         
         assert_eq!(state.merkle_root, new_root);
-        assert!(state.last_update > initial_update);
+
+        // The old assertion slept 10ms and then demanded a strictly greater
+        // timestamp. current_timestamp() has one-second granularity, so 10ms
+        // crosses a tick roughly one run in a hundred — the test was a coin
+        // flip that happened to be weighted towards failing.
+        //
+        // The property that actually matters is that update_merkle_root
+        // refreshes last_update to now, which can be asserted exactly and
+        // without sleeping.
+        assert_eq!(state.last_update, current_timestamp());
+        assert!(state.last_update >= initial_update);
     }
     
     #[test]

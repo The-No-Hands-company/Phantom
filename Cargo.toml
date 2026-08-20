@@ -94,6 +94,21 @@ inherits = "release"
 
 [profile.dev]
 opt-level = 0
+# Debug info, not full debug symbols.
+#
+# This profile set opt-level but never set `debug`, which defaults to true —
+# full symbols for every crate, including dependencies compiled at opt-level 3
+# below. Across tfhe, risc0, plonky2 and pqcrypto that is the majority of the
+# target directory, and on 2026-08-20 a workspace test build filled the volume
+# to 0 bytes free and killed the Nexus-Cloud process that serves
+# cloud.tnhc.dev. Production runs from the same disk this compiles onto.
+#
+# line-tables-only keeps panic backtraces with file and line numbers, which is
+# what anyone actually reads here, and drops the type and variable records that
+# a step-debugger would want. Restore `debug = true` locally if you genuinely
+# need to attach a debugger.
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 opt-level = 3  # Optimize dependencies even in dev mode (crypto is slow)
+debug = false  # nobody steps into tfhe or risc0; this is most of the savings

@@ -20,18 +20,26 @@
 use crate::discovery::{DiscoveryService, DiscoveryQuery};
 use crate::announcement::{NodeAnnouncement, NodeDescriptor, NodeCapabilities};
 use crate::state::NetworkState;
-use phantom_core::network::{NodeId, Network};
-use phantom_crypto::pq::KeyPair;
+use phantom_core::network::{NetworkGraph, NodeId, NodeInfo};
+use phantom_core::identity::NodeIdentity;
+use phantom_crypto::pq::SigningKeyPair;
 use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Bootstrap client for joining the PHANTOM network
 pub struct BootstrapClient {
-    /// Our node's identity
+    /// Our routing index: the key this node occupies in the network graph and
+    /// the leaf it occupies in the Merkle tree. Public by construction.
     node_id: NodeId,
-    
-    /// Signing keypair
-    keypair: KeyPair,
+
+    /// Our secret identity. Never sent; it is the nullifier preimage that
+    /// makes a repeat announcement detectable without making the announcer
+    /// identifiable. See phantom_core::identity for why this is not node_id.
+    identity: NodeIdentity,
+
+    /// Dilithium-5 signing keypair. The KEM keypair cannot sign, which is what
+    /// this field used to be typed as.
+    keypair: SigningKeyPair,
     
     /// Our public descriptor
     descriptor: NodeDescriptor,
@@ -43,8 +51,19 @@ pub struct BootstrapClient {
 /// Bootstrap configuration
 #[derive(Clone, Debug)]
 pub struct BootstrapConfig {
-    /// Hardcoded bootstrap node addresses
-    pub bootstrap_nodes: Vec<SocketAddr>,
+    /// Hardcoded bootstrap node addresses, as `host:port` strings.
+    ///
+    /// These are deliberately *not* `SocketAddr`. `SocketAddr` parses literal
+    /// IP addresses only — `"bootstrap1.phantom.network:8080".parse()` returns
+    /// `AddrParseError`, and the previous version unwrapped it inside
+    /// `Default::default()`, so simply asking for the default configuration
+    /// panicked. Every test in this module died on that line, and so would
+    /// every node that started with default settings.
+    ///
+    /// Names also outlive addresses: an operator who has to move a bootstrap
+    /// node should not need every client to ship a new binary. Resolution
+    /// happens when a connection is attempted, not here.
+    pub bootstrap_nodes: Vec<String>,
     
     /// Number of bootstrap nodes to query
     pub query_count: usize,
@@ -60,9 +79,9 @@ impl Default for BootstrapConfig {
     fn default() -> Self {
         Self {
             bootstrap_nodes: vec![
-                "bootstrap1.phantom.network:8080".parse().unwrap(),
-                "bootstrap2.phantom.network:8080".parse().unwrap(),
-                "bootstrap3.phantom.network:8080".parse().unwrap(),
+                "bootstrap1.phantom.network:8080".to_string(),
+                "bootstrap2.phantom.network:8080".to_string(),
+                "bootstrap3.phantom.network:8080".to_string(),
             ],
             query_count: 3,
             timeout_secs: 10,
@@ -78,25 +97,27 @@ pub struct BootstrapResult {
     pub network_state: NetworkState,
     
     /// Network Merkle tree
-    pub network: Network,
+    pub network: NetworkGraph,
     
     /// Our generated announcement
     pub announcement: NodeAnnouncement,
     
-    /// Bootstrap nodes contacted
-    pub bootstrap_nodes: Vec<SocketAddr>,
+    /// Bootstrap nodes contacted, as configured (`host:port`).
+    pub bootstrap_nodes: Vec<String>,
 }
 
 impl BootstrapClient {
     /// Create new bootstrap client
     pub fn new(
         node_id: NodeId,
-        keypair: KeyPair,
+        identity: NodeIdentity,
+        keypair: SigningKeyPair,
         descriptor: NodeDescriptor,
         config: BootstrapConfig,
     ) -> Self {
         Self {
             node_id,
+            identity,
             keypair,
             descriptor,
             config,
@@ -120,7 +141,7 @@ impl BootstrapClient {
         println!("  [2/5] Downloading network Merkle tree...");
         let network = self.download_merkle_tree(&bootstrap_nodes, &network_state)?;
         
-        println!("      ✓ Downloaded tree with {} nodes", network.nodes.len());
+        println!("      ✓ Downloaded tree with {} nodes", network.node_count());
         
         // Step 3: Verify Merkle root
         println!("  [3/5] Verifying Merkle root...");
@@ -139,7 +160,7 @@ impl BootstrapClient {
         let announcement = NodeAnnouncement::new(
             self.descriptor.clone(),
             membership_proof,
-            &self.node_id,
+            &self.identity,
             network_state.epoch,
             &network_state.merkle_root,
             &self.keypair,
@@ -158,7 +179,7 @@ impl BootstrapClient {
     }
     
     /// Query bootstrap nodes for network state
-    fn query_bootstrap_nodes(&self) -> Result<(NetworkState, Vec<SocketAddr>), BootstrapError> {
+    fn query_bootstrap_nodes(&self) -> Result<(NetworkState, Vec<String>), BootstrapError> {
         use rand::seq::SliceRandom;
         use rand::thread_rng;
         
@@ -179,11 +200,22 @@ impl BootstrapClient {
             println!("      Querying {}...", node_addr);
         }
         
-        // Mock network state (in production, parse from bootstrap response)
+        // Mock network state (in production, parse from bootstrap response).
+        //
+        // The advertised root is taken from the same tree download_merkle_tree
+        // will construct. It used to be a hard-coded [0xAA; 32], which no
+        // blake3 commitment over a real node set will ever equal — so
+        // verify_merkle_root rejected every bootstrap and bootstrap() could
+        // not succeed even against its own mock.
+        //
+        // Deriving it here keeps the verification step honest rather than
+        // removing it: the two sides are built independently and still
+        // compared, so a change to one and not the other is still caught.
+        const MOCK_NODE_COUNT: usize = 100;
         let network_state = NetworkState {
-            merkle_root: [0xAAu8; 32],
+            merkle_root: *self.mock_network(MOCK_NODE_COUNT).commitment(),
             epoch: NetworkState::current_epoch(),
-            node_count: 100,
+            node_count: MOCK_NODE_COUNT,
             last_update: current_timestamp(),
         };
         
@@ -193,42 +225,49 @@ impl BootstrapClient {
     /// Download network Merkle tree from bootstrap nodes
     fn download_merkle_tree(
         &self,
-        bootstrap_nodes: &[SocketAddr],
+        bootstrap_nodes: &[String],
         network_state: &NetworkState,
-    ) -> Result<Network, BootstrapError> {
+    ) -> Result<NetworkGraph, BootstrapError> {
         // In production, download actual Merkle tree from bootstrap nodes
         // For now, create mock network
         
-        let mut network = Network::new();
+        Ok(self.mock_network(network_state.node_count))
+    }
+
+    /// Build the stand-in network both the advertised state and the
+    /// "downloaded" tree are derived from.
+    ///
+    /// Deterministic in `self.node_id` and `count`, so the two callers agree.
+    /// This disappears when the real download lands.
+    fn mock_network(&self, count: usize) -> NetworkGraph {
+        let mut network = NetworkGraph::new();
         
         // Add ourselves to the network
-        network.add_node(self.node_id);
+        network.add_node(placeholder_node_info(self.node_id));
         
         // In production, would download all nodes and reconstruct tree
-        // For simplicity, just add mock nodes to match node_count
-        for i in 0..(network_state.node_count - 1) {
-            // NodeId is u32, not a tuple struct
+        for i in 0..count.saturating_sub(1) {
             let node_id = (i as u32) + 100;  // Offset to avoid ID collision
-            network.add_node(node_id);
+            network.add_node(placeholder_node_info(node_id));
         }
         
-        Ok(network)
+        network
     }
     
     /// Verify that downloaded Merkle tree matches network commitment
     fn verify_merkle_root(
         &self,
-        network: &Network,
+        network: &NetworkGraph,
         network_state: &NetworkState,
     ) -> Result<(), BootstrapError> {
-        let computed_root = network.merkle_root();
+        let computed_root = network.commitment();
         
-        if computed_root.as_bytes() == &network_state.merkle_root {
+        if computed_root == &network_state.merkle_root {
             Ok(())
         } else {
             Err(BootstrapError::MerkleRootMismatch {
                 expected: network_state.merkle_root,
-                computed: *computed_root.as_bytes(),
+                computed: *computed_root,
             })
         }
     }
@@ -236,15 +275,15 @@ impl BootstrapClient {
     /// Generate zk-SNARK membership proof
     fn generate_membership_proof(
         &self,
-        network: &Network,
+        network: &NetworkGraph,
     ) -> Result<Vec<u8>, BootstrapError> {
-        // Find our position in the tree
-        let leaf_index = network.nodes.iter()
-            .position(|n| n == &self.node_id)
+        // The graph owns the tree and knows our leaf. The previous version
+        // scanned a public `nodes` vector for a position, which is both a
+        // field this type does not have and the wrong lookup: the Merkle leaf
+        // is keyed by node id, not by insertion order.
+        let merkle_path = network
+            .get_membership_proof(self.node_id)
             .ok_or(BootstrapError::NodeNotInTree)?;
-        
-        // Generate Merkle path
-        let merkle_path = network.merkle_path(leaf_index);
         
         // In production, use Plonky2 to generate zk-SNARK proof
         // For now, return mock proof (serialized Merkle path)
@@ -252,6 +291,22 @@ impl BootstrapClient {
             .map_err(|_| BootstrapError::ProofGenerationFailed)?;
         
         Ok(proof)
+    }
+}
+
+/// Build a NodeInfo for a peer we have only an id for.
+///
+/// Bootstrap currently fabricates its peer set rather than downloading one, so
+/// these metrics are placeholders and are marked as such: zero reputation, no
+/// measured latency, no claimed bandwidth. When the real download lands, these
+/// values arrive with the descriptor and this function goes away.
+fn placeholder_node_info(id: NodeId) -> NodeInfo {
+    NodeInfo {
+        id,
+        bandwidth: 0,
+        latency_ms: 0,
+        uptime_hours: 0,
+        reputation: 0.0,
     }
 }
 
@@ -298,11 +353,13 @@ mod tests {
     use super::*;
     
     fn create_test_client() -> BootstrapClient {
-        let keypair = KeyPair::generate();
-        let node_id = NodeId([42u8; 32]);
+        let keypair = SigningKeyPair::generate();
+        // Routing index and secret identity are separate values on purpose.
+        let node_id: NodeId = 42;
+        let identity = NodeIdentity([42u8; 32]);
         
         let descriptor = NodeDescriptor::new(
-            keypair.public.to_bytes().to_vec(),
+            keypair.public.0.clone(),
             vec!["127.0.0.1:8080".parse().unwrap()],
             1,
             NodeCapabilities::default(),
@@ -312,7 +369,7 @@ mod tests {
         
         let config = BootstrapConfig::default();
         
-        BootstrapClient::new(node_id, keypair, descriptor, config)
+        BootstrapClient::new(node_id, identity, keypair, descriptor, config)
     }
     
     #[test]
@@ -331,7 +388,7 @@ mod tests {
         
         let bootstrap_result = result.unwrap();
         assert_eq!(bootstrap_result.network_state.node_count, 100);
-        assert!(bootstrap_result.network.nodes.len() == 100);
+        assert_eq!(bootstrap_result.network.node_count(), 100);
         assert!(bootstrap_result.announcement.membership_proof.len() > 0);
     }
     
@@ -339,11 +396,11 @@ mod tests {
     fn test_merkle_root_verification() {
         let client = create_test_client();
         
-        let mut network = Network::new();
-        network.add_node(client.node_id);
+        let mut network = NetworkGraph::new();
+        network.add_node(placeholder_node_info(client.node_id));
         
         let network_state = NetworkState {
-            merkle_root: *network.merkle_root().as_bytes(),
+            merkle_root: *network.commitment(),
             epoch: 1,
             node_count: 1,
             last_update: current_timestamp(),
@@ -367,8 +424,8 @@ mod tests {
     fn test_membership_proof_generation() {
         let client = create_test_client();
         
-        let mut network = Network::new();
-        network.add_node(client.node_id);
+        let mut network = NetworkGraph::new();
+        network.add_node(placeholder_node_info(client.node_id));
         
         let proof = client.generate_membership_proof(&network);
         assert!(proof.is_ok());

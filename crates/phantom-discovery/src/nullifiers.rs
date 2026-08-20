@@ -26,18 +26,21 @@
 //!
 //! // First announcement: accepted
 //! let nullifier = [1u8; 32];
-//! assert!(registry.register(nullifier, 100)?);
+//! assert!(registry.register(nullifier, 100));
 //!
 //! // Duplicate: rejected
-//! assert!(!registry.register(nullifier, 100)?);
+//! assert!(!registry.register(nullifier, 100));
 //!
-//! // Different epoch: accepted (new nullifier)
-//! assert!(registry.register(nullifier, 101)?);
+//! // A new epoch means a genuinely different nullifier, because the epoch is
+//! // hashed into it: nullifier = H(identity || epoch || commitment). Passing
+//! // the *same* nullifier with a later epoch is still a duplicate — has_seen
+//! // keys on the nullifier alone — and this example used to claim otherwise.
+//! let next_epoch_nullifier = [2u8; 32];
+//! assert!(registry.register(next_epoch_nullifier, 101));
 //! ```
 
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
-use anyhow::Result;
 
 /// Nullifier value (32-byte hash)
 pub type Nullifier = [u8; 32];
@@ -82,14 +85,17 @@ impl NullifierRegistry {
     
     /// Register a nullifier from a membership proof
     ///
-    /// **Returns**:
-    /// - `Ok(true)`: Nullifier accepted (first time seen)
-    /// - `Ok(false)`: Nullifier rejected (duplicate)
-    /// - `Err`: System error
-    pub fn register(&mut self, nullifier: Nullifier, epoch: u64) -> Result<bool> {
+    /// **Returns** `true` if the nullifier was accepted (first time seen),
+    /// `false` if it was rejected as a duplicate.
+    ///
+    /// This is infallible. It previously returned `Result<bool>` with no `Err`
+    /// arm anywhere in the body, which made every caller handle a failure that
+    /// could not occur — and, worse, made a real failure indistinguishable
+    /// from the ceremony if one were ever added.
+    pub fn register(&mut self, nullifier: Nullifier, epoch: u64) -> bool {
         // Check if already seen
         if self.has_seen(&nullifier) {
-            return Ok(false); // Duplicate!
+            return false; // Duplicate!
         }
         
         // Check capacity and evict if needed
@@ -104,7 +110,7 @@ impl NullifierRegistry {
         };
         
         self.nullifiers.insert(nullifier, entry);
-        Ok(true)
+        true
     }
     
     /// Check if nullifier has been seen before
@@ -174,11 +180,11 @@ mod tests {
         let epoch = 100;
         
         // First registration: accepted
-        assert!(registry.register(nullifier, epoch).unwrap());
+        assert!(registry.register(nullifier, epoch));
         assert_eq!(registry.len(), 1);
         
         // Duplicate: rejected
-        assert!(!registry.register(nullifier, epoch).unwrap());
+        assert!(!registry.register(nullifier, epoch));
         assert_eq!(registry.len(), 1); // Size unchanged
     }
     
@@ -189,7 +195,7 @@ mod tests {
         let nullifier = [1u8; 32];
         assert!(!registry.has_seen(&nullifier));
         
-        registry.register(nullifier, 100).unwrap();
+        registry.register(nullifier, 100);
         assert!(registry.has_seen(&nullifier));
     }
     
@@ -199,9 +205,9 @@ mod tests {
         registry.set_ttl(2); // 2 epochs TTL
         
         // Register nullifiers in different epochs
-        registry.register([1u8; 32], 100).unwrap();
-        registry.register([2u8; 32], 101).unwrap();
-        registry.register([3u8; 32], 103).unwrap();
+        registry.register([1u8; 32], 100);
+        registry.register([2u8; 32], 101);
+        registry.register([3u8; 32], 103);
         
         assert_eq!(registry.len(), 3);
         
@@ -225,14 +231,14 @@ mod tests {
         for i in 0..5 {
             let mut nullifier = [0u8; 32];
             nullifier[0] = i as u8;
-            registry.register(nullifier, 100).unwrap();
+            registry.register(nullifier, 100);
         }
         
         assert_eq!(registry.len(), 5);
         
         // Add one more → evicts oldest
         let new_nullifier = [99u8; 32];
-        registry.register(new_nullifier, 100).unwrap();
+        registry.register(new_nullifier, 100);
         
         assert_eq!(registry.len(), 5); // Still at capacity
         assert!(registry.has_seen(&new_nullifier)); // New one added
@@ -242,8 +248,8 @@ mod tests {
     fn test_clear() {
         let mut registry = NullifierRegistry::new(100);
         
-        registry.register([1u8; 32], 100).unwrap();
-        registry.register([2u8; 32], 100).unwrap();
+        registry.register([1u8; 32], 100);
+        registry.register([2u8; 32], 100);
         
         assert_eq!(registry.len(), 2);
         

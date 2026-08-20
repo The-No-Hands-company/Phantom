@@ -17,22 +17,34 @@
 ///
 /// # Example Usage
 ///
-/// ```rust
-/// use phantom_simulation::{SimulatedNetwork, NetworkConfig, ByzantineConfig};
+/// ```no_run
+/// use phantom_simulation::{SimulatedNetwork, NetworkConfig};
+/// use std::time::Duration;
 ///
+/// # fn main() -> anyhow::Result<()> {
+/// // NetworkConfig has eight fields, not four — topology, byzantine_config,
+/// // latency_std_dev_ms and simulation_mode were missing from the struct
+/// // literal this example used to build, so it could not compile. Default
+/// // fills them in, which is also what a caller usually wants.
 /// let config = NetworkConfig {
 ///     num_nodes: 100,
 ///     byzantine_ratio: 0.1,  // 10% malicious
-///     avg_latency_ms: 50,
-///     packet_rate: 100,  // packets/sec
+///     ..Default::default()
 /// };
 ///
 /// let mut network = SimulatedNetwork::new(config)?;
 /// network.run_simulation(Duration::from_secs(60))?;
 /// let metrics = network.report_metrics();
 ///
-/// println!("Packet success rate: {:.2}%", metrics.success_rate * 100.0);
+/// println!("Packet success rate: {:.2}%", metrics.network_metrics.success_rate * 100.0);
+/// # Ok(())
+/// # }
 /// ```
+///
+/// Marked `no_run`: it compiles as part of the test suite but is not executed,
+/// because a sixty-second simulation of a hundred nodes does not belong in a
+/// doctest. The previous version was neither compiled nor run — it omitted
+/// `use std::time::Duration` and used `?` outside any function.
 
 pub mod node;
 pub mod network;

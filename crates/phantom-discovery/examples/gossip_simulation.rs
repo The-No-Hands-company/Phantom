@@ -3,13 +3,13 @@
 /// Demonstrates anonymous announcement propagation across a simulated network.
 
 use phantom_discovery::{GossipManager, GossipConfig, NodeAnnouncement, NodeDescriptor, NodeCapabilities};
-use phantom_core::network::NodeId;
-use phantom_crypto::pq::KeyPair;
+use phantom_core::identity::NodeIdentity;
+use phantom_crypto::pq::SigningKeyPair;
 use std::collections::HashMap;
 use std::time::Instant;
 
 fn create_test_announcement(node_id: u8, routing_key: Vec<u8>) -> NodeAnnouncement {
-    let keypair = KeyPair::generate();
+    let keypair = SigningKeyPair::generate();
     
     let descriptor = NodeDescriptor::new(
         routing_key,
@@ -23,7 +23,7 @@ fn create_test_announcement(node_id: u8, routing_key: Vec<u8>) -> NodeAnnounceme
     NodeAnnouncement::new(
         descriptor,
         vec![0u8; 100], // Mock membership proof
-        &NodeId([node_id; 32]),
+        &NodeIdentity([node_id; 32]),
         1,
         &[0xBBu8; 32],
         &keypair,
