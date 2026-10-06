@@ -8,7 +8,7 @@ What the Phantom Protocol does today, and what it does not yet do. Each row name
 | --- | --- | --- |
 | Post-quantum signatures (Dilithium-5) | Done | `test_dilithium_signatures` (phantom-crypto) |
 | Fully homomorphic encryption primitive | Done | `test_fhe_basic_encryption` (phantom-crypto) |
-| Encrypted routing — a relay cannot learn the route | Done | `test_routing_blob_construction` (phantom-routing) |
+| Encrypted routing table | Partial — the route is FHE-encrypted inside the packet and relays look up their next hop homomorphically, but every node currently holds the same decryption key, so a relay could read the whole route; per-relay keys are not implemented | `test_routing_table_lookup` (phantom-crypto) |
 | Multi-hop forwarding | Partial — the test passes (about 47 seconds), but it is switched off in the default test run because the homomorphic encryption makes it slow, so routine checks do not exercise it | `test_multi_hop_forwarding` (phantom-routing) |
 | Replay protection | Partial — repeated packet ids are rejected, but the nullifier is derived from the packet id, so a resent packet with a new id is not caught; the test passes but is switched off in the default test run (slow) | `test_replay_attack_detection` (phantom-routing) |
 | Message contents encrypted on the wire | Not done | `payload_is_not_readable_on_the_wire` (phantom-routing) |
