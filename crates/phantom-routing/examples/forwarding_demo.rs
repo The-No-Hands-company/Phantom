@@ -141,10 +141,12 @@ fn test_forwarding(
     let fhe_engine = simulator.fhe_engine().clone();
     let payload = format!("Test message for {} hops", path_nodes.len()).into_bytes();
     
+    let recipient = phantom_crypto::KeyPair::generate();
     let start = std::time::Instant::now();
     let packet = PhantomPacket::construct(
         path,
         payload.clone(),
+        recipient.public.to_bytes(),
         &fhe_engine,
         &commitment,
     )?;

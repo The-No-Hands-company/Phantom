@@ -4041,6 +4041,7 @@ dependencies = [
  "ark-std 0.4.0",
  "bincode",
  "blake3",
+ "chacha20poly1305",
  "criterion",
  "pqcrypto-dilithium",
  "pqcrypto-kyber",

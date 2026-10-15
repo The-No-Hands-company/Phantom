@@ -208,7 +208,8 @@ fn test_end_to_end_phantom_routing() {
         // Construct packet with FHE routing blob + zk-proof
         let payload = format!("Test packet {}", i).into_bytes();
         
-        let packet = packet_constructor.construct_packet(&routing_path, payload)
+        let recipient = phantom_crypto::KeyPair::generate();
+        let packet = packet_constructor.construct_packet(&routing_path, payload, recipient.public.to_bytes())
             .expect("Failed to construct packet");
         
         let construction_time = start.elapsed();

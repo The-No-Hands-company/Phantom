@@ -271,9 +271,11 @@ mod tests {
         let payload = b"Test message".to_vec();
         let commitment = simulator.network.read().unwrap().commitment().clone();
         
+        let fwd_recipient = phantom_crypto::KeyPair::generate();
         let packet = PhantomPacket::construct(
             path,
             payload,
+            fwd_recipient.public.to_bytes(),
             &fhe_engine,
             &commitment,
         ).unwrap();
@@ -303,9 +305,11 @@ mod tests {
         let payload = b"Long journey message".to_vec();
         let commitment = simulator.network.read().unwrap().commitment().clone();
         
+        let fwd_recipient = phantom_crypto::KeyPair::generate();
         let packet = PhantomPacket::construct(
             path,
             payload,
+            fwd_recipient.public.to_bytes(),
             &fhe_engine,
             &commitment,
         ).unwrap();
@@ -339,9 +343,11 @@ mod tests {
         let payload = b"Test message".to_vec();
         let commitment = simulator.network.read().unwrap().commitment().clone();
         
+        let fwd_recipient = phantom_crypto::KeyPair::generate();
         let packet = PhantomPacket::construct(
             path,
             payload,
+            fwd_recipient.public.to_bytes(),
             &fhe_engine,
             &commitment,
         ).unwrap();

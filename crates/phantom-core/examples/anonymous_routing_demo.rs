@@ -69,7 +69,8 @@ fn main() {
     let payload = b"Secret message for node 105".to_vec();
     
     let packet_start = std::time::Instant::now();
-    let packet = builder.build_packet(&credentials, destination, payload.clone())
+    let recipient = phantom_crypto::KeyPair::generate();
+    let packet = builder.build_packet(&credentials, destination, payload.clone(), recipient.public.to_bytes())
         .expect("Packet construction failed");
     
     println!("   ✓ Packet built in {:.2}s", packet_start.elapsed().as_secs_f64());

@@ -73,6 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let packet = PhantomPacket::construct(
         path.clone(),
         payload.to_vec(),
+        recipient_keypair.public.to_bytes(),
         fhe_engine.as_ref(),
         network_commitment,
     )?;

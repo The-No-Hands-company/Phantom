@@ -97,18 +97,15 @@ caller can detect that the prover's cached proofs have gone stale.
 
 ### What is still not true
 
-**Packet payloads are not encrypted.** `PhantomPacket::construct` documents
-four steps and implements one. The routing table is genuinely FHE-encrypted, so
-a relay cannot learn the route. The payload is stored verbatim, the zk path
-proof is a placeholder, and the nullifier is `hash(packet_id)` — which prevents
-nothing, since a fresh packet id yields a fresh nullifier.
+**Packet payloads are now encrypted (Privacy Part 4).** `PhantomPacket::construct`
+step 3 is implemented: every payload is hybrid-encrypted under the recipient's
+ML-KEM-1024 public key (KEM encapsulation → 32-byte shared secret →
+ChaCha20-Poly1305). The routing table remains FHE-encrypted as before.
+A relay carrying a PHANTOM packet learns neither the route nor the contents.
 
-This matters because the README says nodes "route packets they literally cannot
-decrypt" and "No exits - FHE computation on encrypted data". That is true of
-routing metadata and false of the payload, and the difference is the entire
-threat model. There is an ignored test,
-`payload_is_not_readable_on_the_wire`, holding the requirement open: remove the
-`#[ignore]` when step 3 lands and it should pass unchanged.
+The previously ignored test `payload_is_not_readable_on_the_wire` now passes
+and is no longer ignored. The zk path proof is still a hash placeholder and the
+nullifier is still `hash(packet_id)` — those remain open.
 
 **The only path-proof implementation is `HashProofGenerator`**, whose own
 documentation says it is hash-based and not zero-knowledge.

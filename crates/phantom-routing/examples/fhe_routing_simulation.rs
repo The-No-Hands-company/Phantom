@@ -290,7 +290,11 @@ fn simulate_scalability(packet_count: usize) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-/// Build PHANTOM packet with FHE routing blob
+/// Build PHANTOM packet with FHE routing blob.
+///
+/// In a real deployment `recipient_kem_public` comes from the recipient's
+/// registered Phantom identity. In this demo a fresh key pair is generated
+/// per packet.
 fn build_packet(
     fhe_engine: &FheEngine,
     path: &RoutingPath,
@@ -298,10 +302,12 @@ fn build_packet(
 ) -> Result<PhantomPacket, Box<dyn std::error::Error>> {
     // Network commitment (placeholder for now)
     let network_commitment = [0u8; 32];
-    
+    let recipient = phantom_crypto::KeyPair::generate();
+
     let packet = PhantomPacket::construct(
         path.clone(),
         payload.to_vec(),
+        recipient.public.to_bytes(),
         fhe_engine,
         &network_commitment,
     )?;

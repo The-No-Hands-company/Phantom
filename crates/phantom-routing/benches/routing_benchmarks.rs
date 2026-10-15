@@ -46,13 +46,15 @@ fn bench_packet_processing(c: &mut Criterion) {
     let payload = vec![0u8; 1024]; // 1KB payload
     let commitment = network.read().unwrap().commitment().clone();
     
+    let recipient = phantom_crypto::KeyPair::generate();
     let packet = PhantomPacket::construct(
         path,
         payload,
+        recipient.public.to_bytes(),
         &fhe_engine,
         &commitment,
     ).unwrap();
-    
+
     group.bench_function("process_packet", |b| {
         b.iter(|| {
             forwarder.clear_nullifiers(); // Prevent replay detection in benchmark
@@ -78,9 +80,11 @@ fn bench_routing_decision(c: &mut Criterion) {
         let payload = vec![0u8; 1024];
         let commitment = network.read().unwrap().commitment().clone();
         
+        let bench_recipient = phantom_crypto::KeyPair::generate();
         let packet = PhantomPacket::construct(
             path,
             payload,
+            bench_recipient.public.to_bytes(),
             &fhe_engine,
             &commitment,
         ).unwrap();

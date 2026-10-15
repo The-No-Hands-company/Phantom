@@ -5,6 +5,8 @@
 //! - Dilithium-5 for digital signatures
 //! - SPHINCS+ for hash-based signatures (backup)
 
+use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
+use chacha20poly1305::aead::{Aead, KeyInit};
 use pqcrypto_kyber::kyber1024;
 use pqcrypto_dilithium::dilithium5;
 use pqcrypto_traits::kem::{Ciphertext as _, PublicKey as _, SecretKey as _, SharedSecret as _};
@@ -190,6 +192,62 @@ impl std::fmt::Debug for SharedSecret {
     }
 }
 
+/// Hybrid-encrypted payload: ML-KEM-1024 encapsulation + ChaCha20-Poly1305.
+///
+/// The sender runs `EncryptedPayload::encrypt(plaintext, recipient_kem_public)`.
+/// Each call generates a fresh KEM ciphertext (and therefore a fresh shared
+/// secret), so the ChaCha20-Poly1305 key is unique per message; a 12-byte
+/// random nonce then removes any remaining nonce-collision risk.
+/// The recipient runs `encrypted.decrypt(kem_secret)` to recover the plaintext.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EncryptedPayload {
+    /// ML-KEM-1024 ciphertext (~1568 bytes). Decapsulate to get the symmetric key.
+    pub kem_ciphertext: Vec<u8>,
+    /// Random ChaCha20-Poly1305 nonce (12 bytes).
+    pub nonce: [u8; 12],
+    /// ChaCha20-Poly1305 ciphertext + 16-byte authentication tag.
+    pub ciphertext: Vec<u8>,
+}
+
+impl EncryptedPayload {
+    /// Encrypt `plaintext` for the owner of `recipient_kem_public` (raw ML-KEM-1024 bytes).
+    pub fn encrypt(plaintext: &[u8], recipient_kem_public: &[u8]) -> Result<Self> {
+        let pk = PublicKey::from_bytes(recipient_kem_public.to_vec());
+        let (kem_ciphertext, shared_secret) = KeyPair::encapsulate(&pk)?;
+
+        let nonce_bytes: [u8; 12] = rand::random();
+        let key = Key::from_slice(&shared_secret.0);
+        let cipher = ChaCha20Poly1305::new(key);
+        let nonce = Nonce::from_slice(&nonce_bytes);
+
+        let ciphertext = cipher
+            .encrypt(nonce, plaintext)
+            .map_err(|e| CryptoError::KeyExchangeError(format!("payload encryption failed: {e}")))?;
+
+        Ok(Self { kem_ciphertext, nonce: nonce_bytes, ciphertext })
+    }
+
+    /// Decrypt this payload using the recipient's raw ML-KEM-1024 secret key bytes.
+    pub fn decrypt(&self, recipient_kem_secret: &[u8]) -> Result<Vec<u8>> {
+        let sk = kyber1024::SecretKey::from_bytes(recipient_kem_secret)
+            .map_err(|e| CryptoError::KeyExchangeError(format!("invalid secret key: {e:?}")))?;
+        let ct = kyber1024::Ciphertext::from_bytes(&self.kem_ciphertext)
+            .map_err(|e| CryptoError::KeyExchangeError(format!("invalid KEM ciphertext: {e:?}")))?;
+        let ss = kyber1024::decapsulate(&ct, &sk);
+
+        let mut key_bytes = [0u8; 32];
+        key_bytes.copy_from_slice(&ss.as_bytes()[..32]);
+
+        let key = Key::from_slice(&key_bytes);
+        let cipher = ChaCha20Poly1305::new(key);
+        let nonce = Nonce::from_slice(&self.nonce);
+
+        cipher
+            .decrypt(nonce, self.ciphertext.as_slice())
+            .map_err(|_| CryptoError::KeyExchangeError("payload decryption failed (bad key or tampered ciphertext)".to_string()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,5 +291,36 @@ mod tests {
         let bytes = keypair.public.to_bytes();
         let reconstructed = PublicKey::from_bytes(bytes.to_vec());
         assert_eq!(keypair.public.0, reconstructed.0);
+    }
+
+    #[test]
+    fn encrypted_payload_roundtrip() {
+        let keypair = KeyPair::generate();
+        let plaintext = b"PHANTOM end-to-end encrypted message";
+
+        let encrypted = EncryptedPayload::encrypt(plaintext, keypair.public.to_bytes()).unwrap();
+
+        // Wire form must not contain the plaintext.
+        let wire = bincode::serialize(&encrypted).unwrap();
+        assert!(
+            wire.windows(plaintext.len()).all(|w| w != plaintext.as_slice()),
+            "plaintext found in encrypted payload"
+        );
+
+        // Recipient decrypts successfully.
+        let recovered = encrypted.decrypt(keypair.secret.to_bytes()).unwrap();
+        assert_eq!(recovered, plaintext);
+    }
+
+    #[test]
+    fn encrypted_payload_wrong_key_fails() {
+        let sender_target = KeyPair::generate();
+        let unrelated = KeyPair::generate();
+
+        let encrypted = EncryptedPayload::encrypt(b"secret", sender_target.public.to_bytes()).unwrap();
+        assert!(
+            encrypted.decrypt(unrelated.secret.to_bytes()).is_err(),
+            "decryption with wrong key must fail"
+        );
     }
 }

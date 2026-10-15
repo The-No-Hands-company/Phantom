@@ -173,8 +173,9 @@ impl PhantomPacket {
             },
         };
         
-        // 3. Encrypt payload (TODO: use recipient_public_key for encryption)
-        let encrypted_payload = payload; // Placeholder
+        // 3. Hybrid-encrypt payload for recipient (ML-KEM-1024 + ChaCha20-Poly1305).
+        let encrypted = phantom_crypto::EncryptedPayload::encrypt(&payload, recipient_public_key)?;
+        let encrypted_payload = bincode::serialize(&encrypted)?;
         
         // 4. Generate rate-limiting nullifier
         let nullifier = hash(&packet_id);
@@ -213,6 +214,7 @@ impl PhantomPacket {
     pub fn construct(
         path: RoutingPath,
         payload: Vec<u8>,
+        recipient_kem_public: &[u8],
         fhe_engine: &FheEngine,
         network_commitment: &[u8; 32],
     ) -> Result<Self> {
@@ -249,18 +251,18 @@ impl PhantomPacket {
         // For now, create a placeholder proof
         let path_proof = Self::generate_path_proof(&path, network_commitment)?;
         
-        // 3. Encrypt payload
-        // TODO: Use FHE for payload encryption too
-        // For now, just use the raw payload
-        
+        // 3. Hybrid-encrypt payload for recipient (ML-KEM-1024 + ChaCha20-Poly1305).
+        let encrypted = phantom_crypto::EncryptedPayload::encrypt(&payload, recipient_kem_public)?;
+        let payload_bytes = bincode::serialize(&encrypted)?;
+
         // 4. Generate rate-limiting nullifier
         // TODO: Integrate with RLN/Semaphore
         let nullifier = hash(&packet_id);
-        
+
         Ok(Self {
             routing_blob,
             path_proof,
-            payload,
+            payload: payload_bytes,
             nullifier,
             packet_id,
         })
@@ -329,6 +331,13 @@ impl PhantomPacket {
         }
     }
     
+    /// Decrypt the payload using the recipient's raw ML-KEM-1024 secret key bytes.
+    pub fn decrypt_payload(&self, recipient_kem_secret: &[u8]) -> Result<Vec<u8>> {
+        let encrypted: phantom_crypto::EncryptedPayload = bincode::deserialize(&self.payload)
+            .map_err(|e| ProtocolError::SerializationError(format!("invalid encrypted payload: {e}")))?;
+        Ok(encrypted.decrypt(recipient_kem_secret)?)
+    }
+
     /// Get the packet size in bytes
     pub fn size(&self) -> usize {
         self.routing_blob.len() + 
@@ -466,21 +475,28 @@ mod tests {
     #[ignore] // Slow test due to FHE operations
     fn test_packet_construction() {
         let fhe_engine = FheEngine::generate_keys();
+        let recipient = phantom_crypto::KeyPair::generate();
         let path = RoutingPath::new(vec![100, 101, 102, 103, 104])
             .expect("Valid path");
         let payload = b"Secret message".to_vec();
         let network_commitment = [0u8; 32];
-        
+
         let packet = PhantomPacket::construct(
             path,
             payload.clone(),
+            recipient.public.to_bytes(),
             &fhe_engine,
             &network_commitment,
         ).expect("Packet construction should succeed");
-        
+
         assert!(!packet.routing_blob.is_empty());
         assert!(!packet.path_proof.proof_data.is_empty());
-        assert_eq!(packet.payload, payload);
+        // Payload must be encrypted — it must not survive in the clear.
+        assert_ne!(packet.payload, payload, "payload must be encrypted");
+        // Recipient can decrypt it back.
+        let recovered = packet.decrypt_payload(recipient.secret.to_bytes())
+            .expect("Decryption should succeed");
+        assert_eq!(recovered, payload);
         assert!(packet.verify_path_proof(&network_commitment)
             .expect("Verification should succeed"));
     }

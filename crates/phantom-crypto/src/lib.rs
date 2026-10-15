@@ -11,7 +11,7 @@ pub mod fhe;
 pub mod zk;
 pub mod primitives;
 
-pub use pq::{KeyPair, PublicKey, SecretKey, SharedSecret};
+pub use pq::{KeyPair, PublicKey, SecretKey, SharedSecret, EncryptedPayload};
 pub use fhe::{FheEngine, EncryptedValue, ServerKey, ClientKey};
 pub use zk::{ProofSystem, Proof, Circuit, RateLimitNullifier, NullifierSet};
 

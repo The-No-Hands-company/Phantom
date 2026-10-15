@@ -95,6 +95,7 @@ impl AnonymousPacketBuilder {
         credentials: &SenderCredentials,
         destination: u32,
         payload: Vec<u8>,
+        recipient_kem_public: &[u8],
     ) -> Result<PhantomPacket> {
         // Validate sender membership
         self.validate_credentials(credentials)?;
@@ -108,10 +109,11 @@ impl AnonymousPacketBuilder {
         // Get network commitment (Merkle root)
         let network_commitment = self.network.commitment();
         
-        // Construct packet with FHE routing blob
+        // Construct packet with FHE routing blob and hybrid-encrypted payload.
         let mut packet = PhantomPacket::construct(
             path,
             payload,
+            recipient_kem_public,
             &self.fhe_engine,
             network_commitment,
         )?;
@@ -417,19 +419,24 @@ mod tests {
         };
         
         // Build anonymous packet
+        let recipient = phantom_crypto::KeyPair::generate();
         let packet = builder.build_packet(
             &credentials,
             105, // destination
             b"Secret message".to_vec(),
+            recipient.public.to_bytes(),
         );
-        
+
         assert!(packet.is_ok());
         let packet = packet.unwrap();
-        
+
         // Verify packet structure
         assert!(!packet.routing_blob.is_empty());
-        assert_eq!(packet.payload, b"Secret message");
-        
+        // Payload is encrypted — it must not appear in the clear.
+        assert_ne!(packet.payload, b"Secret message");
+        let recovered = packet.decrypt_payload(recipient.secret.to_bytes()).unwrap();
+        assert_eq!(recovered, b"Secret message");
+
         // Verify nullifier matches credentials
         let expected_nullifier = builder.compute_nullifier(&credentials.node_id, epoch).unwrap();
         assert_eq!(packet.nullifier, expected_nullifier);

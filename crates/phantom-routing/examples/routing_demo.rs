@@ -84,9 +84,11 @@ fn main() -> anyhow::Result<()> {
              path.hops[0], path.hops[1], path.hops[2], path.hops[3], path.hops[4]);
     println!("  Payload: {} bytes", payload.len());
     
+    let demo_recipient = phantom_crypto::KeyPair::generate();
     let packet = PhantomPacket::construct(
         path.clone(),
         payload.clone(),
+        demo_recipient.public.to_bytes(),
         &fhe_engine,
         &commitment,
     )?;

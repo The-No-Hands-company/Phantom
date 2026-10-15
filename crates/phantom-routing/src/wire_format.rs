@@ -269,9 +269,11 @@ mod tests {
         let payload = b"Test message".to_vec();
         let network_commitment = [0u8; 32];
         
+        let wf_recipient = phantom_crypto::KeyPair::generate();
         let packet = PhantomPacket::construct(
             path,
             payload,
+            wf_recipient.public.to_bytes(),
             &fhe_engine,
             &network_commitment,
         ).unwrap();
@@ -350,9 +352,11 @@ mod tests {
         let payload = b"Secret test message".to_vec();
         let network_commitment = [0u8; 32];
         
+        let wf_recipient2 = phantom_crypto::KeyPair::generate();
         let original = PhantomPacket::construct(
             path,
             payload.clone(),
+            wf_recipient2.public.to_bytes(),
             &fhe_engine,
             &network_commitment,
         ).unwrap();

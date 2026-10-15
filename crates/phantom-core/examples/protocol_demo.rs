@@ -115,9 +115,11 @@ fn main() -> anyhow::Result<()> {
     println!("\n  Constructing PHANTOM packet with FHE-encrypted routing...");
     let start = std::time::Instant::now();
     
+    let recipient = phantom_crypto::KeyPair::generate();
     let packet = PhantomPacket::construct(
         path.clone(),
         payload.clone(),
+        recipient.public.to_bytes(),
         &fhe_engine,
         &network_commitment,
     )?;

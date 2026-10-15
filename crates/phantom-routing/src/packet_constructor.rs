@@ -44,10 +44,15 @@ impl PacketConstructor {
     /// packet built against a stale root is rejected by the first relay that
     /// checks it — so the freshest value is the only correct one, and holding a
     /// copy here would be a bug that only appears under churn.
+    /// Construct a packet for `path` carrying `payload`, encrypted for `recipient_kem_public`.
+    ///
+    /// `recipient_kem_public` is the raw ML-KEM-1024 public key bytes of the intended
+    /// recipient (registered via the Phantom identity API in Privacy Part 3).
     pub fn construct_packet(
         &self,
         path: &RoutingPath,
         payload: Vec<u8>,
+        recipient_kem_public: &[u8],
     ) -> Result<PhantomPacket, PacketConstructionError> {
         let commitment = {
             let network = self
@@ -57,7 +62,7 @@ impl PacketConstructor {
             *network.commitment()
         };
 
-        PhantomPacket::construct(path.clone(), payload, &self.fhe_engine, &commitment)
+        PhantomPacket::construct(path.clone(), payload, recipient_kem_public, &self.fhe_engine, &commitment)
             .map_err(PacketConstructionError::Construction)
     }
 
@@ -119,56 +124,42 @@ mod tests {
     fn constructs_a_packet_over_a_three_hop_path() {
         let network = network_of(4);
         let c = constructor(network);
+        let recipient = phantom_crypto::KeyPair::generate();
 
         let path = RoutingPath::new(vec![0, 1, 2]).expect("3 hops is a valid path");
         let packet = c
-            .construct_packet(&path, b"hello".to_vec())
+            .construct_packet(&path, b"hello".to_vec(), recipient.public.to_bytes())
             .expect("construction should succeed");
 
-        assert_eq!(packet.payload, b"hello", "payload must survive construction");
+        assert_ne!(packet.payload, b"hello", "payload must be encrypted, not stored in the clear");
         assert!(!packet.routing_blob.is_empty(), "routing table must be FHE-encrypted");
+        // Verify the recipient can recover the original payload.
+        let recovered = packet.decrypt_payload(recipient.secret.to_bytes()).expect("decrypt");
+        assert_eq!(recovered, b"hello");
     }
 
-    /// The payload is NOT encrypted, and this test says so out loud.
-    ///
-    /// `PhantomPacket::construct` documents four steps and implements one.
-    /// Step 3 reads:
-    ///
-    /// ```text
-    /// // 3. Encrypt payload
-    /// // TODO: Use FHE for payload encryption too
-    /// // For now, just use the raw payload
-    /// ```
-    ///
-    /// So a relay carrying a PHANTOM packet cannot read the *route* — that
-    /// part is genuinely FHE-encrypted — but can read the *contents*
-    /// perfectly well. The README says "Nodes route packets they literally
-    /// cannot decrypt" and "No exits - FHE computation on encrypted data".
-    /// That is true of routing metadata and false of the payload.
-    ///
-    /// This is ignored rather than deleted or inverted. Asserting the current
-    /// behaviour would mean this test fails when someone finally encrypts the
-    /// payload, which is precisely backwards. Ignored, it is a requirement
-    /// waiting to be met: remove the attribute when step 3 is implemented and
-    /// it should pass unchanged.
     #[test]
-    #[ignore = "payload encryption is unimplemented — packet.rs step 3 is a TODO"]
     fn payload_is_not_readable_on_the_wire() {
         let network = network_of(4);
         let c = constructor(network);
+        let recipient = phantom_crypto::KeyPair::generate();
 
         let path = RoutingPath::new(vec![0, 1, 2]).expect("3 hops is a valid path");
         let packet = c
-            .construct_packet(&path, b"hello".to_vec())
+            .construct_packet(&path, b"hello".to_vec(), recipient.public.to_bytes())
             .expect("construction should succeed");
 
-        // The payload must not survive in the clear: the whole point of the
-        // packet is that a relay carrying it learns nothing from it.
+        // The payload must not survive in the clear: a relay carrying this packet
+        // learns nothing from the contents.
         let wire = bincode::serialize(&packet).expect("packet serializes");
         assert!(
             wire.windows(5).all(|w| w != b"hello"),
             "plaintext payload found in the serialized packet"
         );
+
+        // The intended recipient can still recover it.
+        let recovered = packet.decrypt_payload(recipient.secret.to_bytes()).expect("decrypt");
+        assert_eq!(recovered, b"hello");
     }
 
     #[test]
@@ -201,8 +192,9 @@ mod tests {
         // Building a packet now must use the new root. If the constructor had
         // cached the commitment at construction time this would still be the
         // old one, and every packet would be rejected by the first relay.
+        let recipient = phantom_crypto::KeyPair::generate();
         let path = RoutingPath::new(vec![0, 1, 2]).unwrap();
-        c.construct_packet(&path, b"x".to_vec())
+        c.construct_packet(&path, b"x".to_vec(), recipient.public.to_bytes())
             .expect("construction should use the current commitment and succeed");
     }
 
