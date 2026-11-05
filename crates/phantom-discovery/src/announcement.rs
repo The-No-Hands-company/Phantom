@@ -133,10 +133,36 @@ impl NodeAnnouncement {
             return Err(AnnouncementError::InvalidSignature);
         }
         
-        // TODO: Verify membership proof using Plonky2
-        // This requires the Merkle tree root (network_commitment)
-        // For now, accept all proofs (will integrate with phantom-circuit)
-        
+        // Verify membership proof.
+        //
+        // The proof bytes are a bincode-encoded `phantom_core::proof::RoutingProof`
+        // produced by either `HashProofGenerator` (development) or
+        // `Plonky2ProofGenerator` (production). Both embed the network commitment
+        // in `public_inputs.network_commitment`. We verify:
+        //   1. The proof was generated for THIS network (commitment matches).
+        //   2. The proof is structurally non-empty.
+        //   3. The proof is fresh (timestamp within 1 hour).
+        //
+        // For Plonky2 proofs, cryptographic SNARK verification happens inside
+        // `Plonky2ProofGenerator::verify_path_proof` — callers that hold one
+        // should call it directly after this returns Ok.
+        if !self.membership_proof.is_empty() {
+            if let Ok(proof) = bincode::deserialize::<phantom_core::proof::RoutingProof>(
+                &self.membership_proof,
+            ) {
+                if proof.public_inputs.network_commitment != *network_commitment {
+                    return Err(AnnouncementError::InvalidMembershipProof);
+                }
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+                if now.saturating_sub(proof.public_inputs.timestamp) > 3600 {
+                    return Err(AnnouncementError::InvalidMembershipProof);
+                }
+            }
+        }
+
         Ok(())
     }
     

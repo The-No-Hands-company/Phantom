@@ -31,6 +31,7 @@
 
 use crate::peer_selector::{NodeInfo, Nullifier};
 use anyhow::{Result, bail};
+use phantom_crypto::FheEngine;
 use serde::{Serialize, Deserialize};
 use std::collections::HashSet;
 
@@ -243,44 +244,25 @@ impl PhantomPath {
         self.nodes.iter().any(|n| &n.nullifier == nullifier)
     }
 
-    /// Construct FHE routing blob for this path
+    /// Construct FHE-encrypted routing blob for this path.
     ///
-    /// The routing blob is an encrypted representation of the path that allows
-    /// oblivious routing: each node can check if it's in the path without learning
-    /// the full path structure.
+    /// Each hop is encoded as a (node_id, next_hop) pair encrypted under `fhe`.
+    /// Relays call `FheEngine::oblivious_lookup` to find their next hop without
+    /// learning any other hop in the path.
     ///
-    /// Format: [encrypted_table_entries]
-    /// Each entry: (node_id, next_hop, hop_index)
-    ///
-    /// In production, this uses TFHE-rs FHE operations.
-    /// For now, we create a placeholder structure.
-    pub fn construct_routing_blob(&self) -> Result<Vec<u8>> {
-        // Placeholder: In production, this would:
-        // 1. Generate FHE keys (or use cached keys)
-        // 2. Encrypt each routing table entry
-        // 3. Serialize the encrypted table
-        
-        // For now, create a simple serialized structure
-        let blob_size = self.nodes.len() * 96; // 96 bytes per entry (32 * 3 fields)
-        let mut blob = Vec::with_capacity(blob_size);
+    /// Node IDs are derived from the first 4 bytes of each node's nullifier, giving
+    /// a stable u32 key that the FHE table can index.
+    pub fn construct_routing_blob(&self, fhe: &FheEngine) -> Result<Vec<u8>> {
+        // Derive stable u32 IDs from the first 4 bytes of each nullifier.
+        let node_ids: Vec<u32> = self.nodes.iter()
+            .map(|n| u32::from_le_bytes([n.nullifier[0], n.nullifier[1], n.nullifier[2], n.nullifier[3]]))
+            .collect();
 
-        // Add path metadata (unencrypted for now)
-        blob.extend_from_slice(&(self.hop_count as u32).to_le_bytes());
-        
-        // Add routing entries (would be FHE-encrypted in production)
-        for (idx, node) in self.nodes.iter().enumerate() {
-            blob.extend_from_slice(&node.nullifier);
-            blob.extend_from_slice(&(idx as u32).to_le_bytes());
-            
-            // Next hop (or zeros for exit node)
-            if idx + 1 < self.nodes.len() {
-                blob.extend_from_slice(&self.nodes[idx + 1].nullifier);
-            } else {
-                blob.extend_from_slice(&[0u8; 32]); // Exit marker
-            }
-        }
+        // Build parallel FHE-encrypted routing table: Vec<(enc_node_id, enc_next_hop)>.
+        let encrypted_table = fhe.build_routing_table(&node_ids);
 
-        Ok(blob)
+        bincode::serialize(&encrypted_table)
+            .map_err(|e| anyhow::anyhow!("routing blob serialization failed: {}", e))
     }
 }
 
@@ -423,6 +405,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "FHE key generation takes ~2 minutes; run with --ignored explicitly"]
     fn test_routing_blob_construction() {
         let builder = PathBuilder::new().min_hops(3);
 
@@ -433,14 +416,9 @@ mod tests {
         ];
 
         let path = builder.build_path(peers).unwrap();
-        let blob = path.construct_routing_blob().unwrap();
-
-        // Should have reasonable size
+        let fhe = FheEngine::generate_keys();
+        let blob = path.construct_routing_blob(&fhe).unwrap();
         assert!(!blob.is_empty());
-        
-        // Should encode path length (first 4 bytes)
-        let hop_count = u32::from_le_bytes([blob[0], blob[1], blob[2], blob[3]]);
-        assert_eq!(hop_count, 3);
     }
 
     #[test]

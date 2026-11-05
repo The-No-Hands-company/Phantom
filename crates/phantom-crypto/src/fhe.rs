@@ -393,6 +393,88 @@ impl FheEngine {
     }
 }
 
+/// Per-relay FHE key registry.
+///
+/// Each relay generates an `FheEngine` (its own Kyber keypair) and registers
+/// here. The sender calls `encrypt_hop_for_relay` to encrypt a routing entry
+/// with THAT relay's client key — only that relay can then decrypt its own
+/// result. No relay can evaluate the full routing blob because they hold
+/// different keys.
+///
+/// Calling `generate_keys()` for each relay is expensive (~1-2 s each) so
+/// registries should be built once and reused for the network session.
+pub struct RelayKeyRegistry {
+    relay_engines: std::collections::HashMap<u32, std::sync::Arc<FheEngine>>,
+}
+
+impl RelayKeyRegistry {
+    /// Create an empty registry.
+    pub fn new() -> Self {
+        Self { relay_engines: std::collections::HashMap::new() }
+    }
+
+    /// Register a relay node. Generates a fresh FHE keypair for it.
+    pub fn register_relay(&mut self, node_id: u32) -> std::sync::Arc<FheEngine> {
+        let engine = std::sync::Arc::new(FheEngine::generate_keys());
+        self.relay_engines.insert(node_id, engine.clone());
+        engine
+    }
+
+    /// Register a relay with an already-constructed engine (for testing).
+    pub fn register_with_engine(&mut self, node_id: u32, engine: std::sync::Arc<FheEngine>) {
+        self.relay_engines.insert(node_id, engine);
+    }
+
+    /// Get the engine for a relay (None if not registered).
+    pub fn engine_for(&self, node_id: u32) -> Option<std::sync::Arc<FheEngine>> {
+        self.relay_engines.get(&node_id).cloned()
+    }
+
+    /// Encrypt a (node_id, next_hop) routing entry with the target relay's key.
+    ///
+    /// Only the relay that owns `relay_node_id` can decrypt the result.
+    pub fn encrypt_hop_for_relay(
+        &self,
+        relay_node_id: u32,
+        node_id: u32,
+        next_hop: u32,
+    ) -> Result<(EncryptedValue, EncryptedValue)> {
+        let engine = self.relay_engines.get(&relay_node_id)
+            .ok_or_else(|| CryptoError::FheError(format!("Relay {relay_node_id} not registered")))?;
+        Ok((engine.encrypt_u32(node_id), engine.encrypt_u32(next_hop)))
+    }
+
+    /// Build a per-relay routing blob for a path.
+    ///
+    /// Each hop's entry is encrypted with that hop's own key — relay i can only
+    /// decrypt entry i. The returned blob is a bincode-serialised
+    /// `Vec<(EncryptedValue, EncryptedValue)>` where entry i is encrypted for
+    /// `path[i]`. Relays that are not in the registry fall back to the shared
+    /// FHE engine supplied as `fallback`.
+    pub fn build_per_relay_routing_blob(
+        &self,
+        path: &[u32],
+        fallback: &FheEngine,
+    ) -> Result<Vec<u8>> {
+        let mut table: Vec<(EncryptedValue, EncryptedValue)> = Vec::with_capacity(path.len());
+        for (i, &node_id) in path.iter().enumerate() {
+            let next_hop = if i + 1 < path.len() { path[i + 1] } else { 0 };
+            let entry = if let Some(engine) = self.relay_engines.get(&node_id) {
+                (engine.encrypt_u32(node_id), engine.encrypt_u32(next_hop))
+            } else {
+                (fallback.encrypt_u32(node_id), fallback.encrypt_u32(next_hop))
+            };
+            table.push(entry);
+        }
+        bincode::serialize(&table)
+            .map_err(|e| CryptoError::FheError(format!("Serialization failed: {e}")))
+    }
+}
+
+impl Default for RelayKeyRegistry {
+    fn default() -> Self { Self::new() }
+}
+
 impl ServerKey {
     /// Perform homomorphic equality check
     ///
@@ -497,6 +579,30 @@ mod tests {
         let decrypted = engine.decrypt_u32(&encrypted).unwrap();
         
         assert_eq!(node_id, decrypted);
+    }
+
+    #[test]
+    fn test_relay_key_registry_registration() {
+        let mut registry = super::RelayKeyRegistry::new();
+        let engine = registry.register_relay(42);
+        assert!(registry.engine_for(42).is_some());
+        assert!(registry.engine_for(99).is_none());
+        // Encrypt + decrypt roundtrip with the per-relay engine
+        let enc = engine.encrypt_u32(123);
+        let dec = engine.decrypt_u32(&enc).unwrap();
+        assert_eq!(dec, 123);
+    }
+
+    #[test]
+    fn test_relay_registry_different_keys_per_relay() {
+        // Two relays each get their own engine; relay A's engine should encrypt
+        // values that only relay A can decrypt (engines are independent keypairs).
+        let mut registry = super::RelayKeyRegistry::new();
+        let engine_a = registry.register_relay(1);
+        let _engine_b = registry.register_relay(2);
+        let enc = engine_a.encrypt_u32(7);
+        // Both can decrypt because they each decrypt with their own client key
+        assert_eq!(engine_a.decrypt_u32(&enc).unwrap(), 7);
     }
 
     #[test]

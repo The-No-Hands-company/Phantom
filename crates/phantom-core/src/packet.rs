@@ -109,6 +109,22 @@ impl RoutingPath {
     }
 }
 
+/// Derive a content-based nullifier from the routing path and plaintext payload.
+///
+/// Using the plaintext (before encryption) means the same logical message over
+/// the same path always produces the same nullifier, regardless of the random
+/// bytes in `packet_id`. A relay that sees the nullifier again knows it has
+/// already forwarded this exact (path, payload) combination and drops it.
+fn derive_content_nullifier(hops: &[NodeId], payload_plaintext: &[u8]) -> [u8; 32] {
+    let payload_hash = hash(payload_plaintext);
+    let mut input = Vec::with_capacity(hops.len() * 4 + 32);
+    for &h in hops {
+        input.extend(h.to_le_bytes());
+    }
+    input.extend(payload_hash);
+    hash(&input)
+}
+
 impl PhantomPacket {
     /// Construct a new PHANTOM packet with Plonky2 proof integration
     ///
@@ -226,24 +242,8 @@ impl PhantomPacket {
         hash_input.extend(&random_bytes);
         let packet_id = hash(&hash_input);
         
-        // 1. Encrypt routing table using FHE
-        // Build table: (node_id, next_hop) pairs
-        let mut routing_table = Vec::new();
-        for (i, &node_id) in path.hops.iter().enumerate() {
-            let next_hop = if i < path.next_hops.len() {
-                path.next_hops[i]
-            } else {
-                0
-            };
-            
-            // Encrypt both node_id and next_hop
-            let encrypted_node = fhe_engine.encrypt_u32(node_id);
-            let encrypted_next = fhe_engine.encrypt_u32(next_hop);
-            
-            routing_table.push((encrypted_node, encrypted_next));
-        }
-        
-        // Serialize the encrypted routing table
+        // 1. Encrypt routing table using FHE — use the batched path for Rayon parallelism
+        let routing_table = fhe_engine.build_routing_table(&path.hops);
         let routing_blob = bincode::serialize(&routing_table)?;
         
         // 2. Generate zk-proof of path validity
@@ -255,9 +255,60 @@ impl PhantomPacket {
         let encrypted = phantom_crypto::EncryptedPayload::encrypt(&payload, recipient_kem_public)?;
         let payload_bytes = bincode::serialize(&encrypted)?;
 
-        // 4. Generate rate-limiting nullifier
-        // TODO: Integrate with RLN/Semaphore
-        let nullifier = hash(&packet_id);
+        // 4. Content-based nullifier — same routing path + same plaintext payload
+        // always produces the same nullifier, so a relay that re-injects the same
+        // logical message (even with a fresh packet_id) is detected as a replay.
+        let nullifier = derive_content_nullifier(&path.hops, &payload);
+
+        Ok(Self {
+            routing_blob,
+            path_proof,
+            payload: payload_bytes,
+            nullifier,
+            packet_id,
+        })
+    }
+
+    /// Construct a packet with a real zero-knowledge proof of path validity.
+    ///
+    /// Identical to `construct` except the caller supplies a `ProofGenerator` —
+    /// typically `phantom_zkvm::Plonky2ProofGenerator` — so the routing proof is
+    /// a genuine Plonky2 zkSNARK rather than a placeholder hash.
+    pub fn construct_with_proof(
+        path: RoutingPath,
+        payload: Vec<u8>,
+        recipient_kem_public: &[u8],
+        fhe_engine: &FheEngine,
+        network_commitment: &[u8; 32],
+        proof_generator: &dyn crate::proof::ProofGenerator,
+    ) -> Result<Self> {
+        use crate::proof::ProofGenerator as _;
+        let random_bytes = rand::random::<[u8; 32]>();
+        let mut hash_input = Vec::new();
+        hash_input.extend(path.hops.iter().flat_map(|h| h.to_le_bytes()));
+        hash_input.extend(&payload);
+        hash_input.extend(&random_bytes);
+        let packet_id = hash(&hash_input);
+
+        // FHE-encrypt routing table
+        let mut routing_table = Vec::new();
+        for (i, &node_id) in path.hops.iter().enumerate() {
+            let next_hop = if i < path.next_hops.len() { path.next_hops[i] } else { 0 };
+            routing_table.push((fhe_engine.encrypt_u32(node_id), fhe_engine.encrypt_u32(next_hop)));
+        }
+        let routing_blob = bincode::serialize(&routing_table)?;
+
+        // Real ZK proof from caller-supplied generator
+        let path_proof = proof_generator
+            .generate_path_proof(&path.hops, network_commitment, &[])
+            .map_err(|e| crate::error::ProtocolError::InvalidPath(format!("ZK proof: {e}")))?;
+
+        // Encrypt payload
+        let encrypted = phantom_crypto::EncryptedPayload::encrypt(&payload, recipient_kem_public)?;
+        let payload_bytes = bincode::serialize(&encrypted)?;
+
+        // Content-based nullifier (same as construct)
+        let nullifier = derive_content_nullifier(&path.hops, &payload);
 
         Ok(Self {
             routing_blob,

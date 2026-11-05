@@ -14,6 +14,7 @@ phantom-crypto = { path = "../phantom-crypto" }
 phantom-core = { path = "../phantom-core" }
 phantom-routing = { path = "../phantom-routing" }
 phantom-networking = { path = "../phantom-networking" }
+phantom-zkvm = { path = "../phantom-zkvm" }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true }

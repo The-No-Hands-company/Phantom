@@ -1,7 +1,8 @@
 //! Network graph and topology management
 
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::cmp::Reverse;
 use crate::merkle::MerkleTree;
 
 pub type NodeId = u32;
@@ -28,6 +29,22 @@ pub struct NodeInfo {
     pub latency_ms: u32,     // Average latency in milliseconds
     pub uptime_hours: u32,   // Uptime in hours
     pub reputation: f64,     // Reputation score (0.0 to 1.0)
+}
+
+/// Wrapper so `BinaryHeap<Reverse<PathByLen>>` is ordered by hop count.
+#[derive(Eq, PartialEq)]
+struct PathByLen(Vec<NodeId>);
+
+impl Ord for PathByLen {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.0.len().cmp(&other.0.len())
+            .then_with(|| self.0.cmp(&other.0))
+    }
+}
+impl PartialOrd for PathByLen {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl NetworkGraph {
@@ -130,27 +147,120 @@ impl NetworkGraph {
         self.merkle_tree.verify_proof(node_id, proof)
     }
     
-    /// Find k-shortest paths between two nodes
-    /// Returns up to k paths, each as a vector of node IDs
+    /// Find up to k shortest (fewest-hop) paths from `source` to `dest`.
+    ///
+    /// Uses Yen's k-shortest simple-paths algorithm. All edges are unit weight
+    /// (the graph has no latency or cost annotations at this layer), so BFS
+    /// yields optimal paths and Yen's loop finds k diverse alternatives.
+    ///
+    /// Returns fewer than k paths when the graph is too sparse.
     pub fn k_shortest_paths(
         &self,
         source: NodeId,
         dest: NodeId,
-        _k: usize,
+        k: usize,
     ) -> Vec<Vec<NodeId>> {
-        // TODO: Implement Yen's k-shortest paths algorithm
-        // For now, return a simple direct path if connected
-        
-        if source == dest {
+        if source == dest || k == 0 {
             return vec![];
         }
-        
-        // Placeholder: just return direct connection if exists
-        if self.are_connected(source, dest) {
-            vec![vec![source, dest]]
-        } else {
-            vec![]
+
+        // ── Seed: shortest path with unrestricted BFS ──
+        let first = match self.bfs_path(source, dest, &HashSet::new(), &HashSet::new()) {
+            Some(p) => p,
+            None => return vec![],
+        };
+
+        let mut result: Vec<Vec<NodeId>> = vec![first];
+        // Min-heap ordered by (path_length, path_lex) so the shortest candidate
+        // is always next.
+        let mut candidates: BinaryHeap<Reverse<PathByLen>> = BinaryHeap::new();
+
+        for i in 1..k {
+            let prev = result[i - 1].clone();
+
+            for spur_idx in 0..prev.len().saturating_sub(1) {
+                let spur_node = prev[spur_idx];
+                let root_path = &prev[..=spur_idx];
+
+                // Remove edges that any already-found path shares with root_path
+                // at the spur position, so each new path diverges here.
+                let mut removed_edges: HashSet<(NodeId, NodeId)> = HashSet::new();
+                for p in &result {
+                    if p.len() > spur_idx && p[..=spur_idx] == *root_path {
+                        if let (Some(&u), Some(&v)) = (p.get(spur_idx), p.get(spur_idx + 1)) {
+                            removed_edges.insert((u, v));
+                            removed_edges.insert((v, u));
+                        }
+                    }
+                }
+
+                // Remove root nodes (except spur itself) to keep path simple.
+                let removed_nodes: HashSet<NodeId> =
+                    root_path[..spur_idx].iter().copied().collect();
+
+                if let Some(spur) =
+                    self.bfs_path(spur_node, dest, &removed_edges, &removed_nodes)
+                {
+                    let mut total: Vec<NodeId> = root_path[..spur_idx].to_vec();
+                    total.extend_from_slice(&spur);
+                    if !result.contains(&total) {
+                        candidates.push(Reverse(PathByLen(total)));
+                    }
+                }
+            }
+
+            match candidates.pop() {
+                Some(Reverse(PathByLen(path))) => result.push(path),
+                None => break,
+            }
         }
+
+        result
+    }
+
+    /// BFS shortest path respecting removed edges and nodes.
+    fn bfs_path(
+        &self,
+        source: NodeId,
+        dest: NodeId,
+        removed_edges: &HashSet<(NodeId, NodeId)>,
+        removed_nodes: &HashSet<NodeId>,
+    ) -> Option<Vec<NodeId>> {
+        let mut queue: VecDeque<NodeId> = VecDeque::new();
+        let mut parent: HashMap<NodeId, NodeId> = HashMap::new();
+
+        queue.push_back(source);
+        parent.insert(source, source); // sentinel: source is its own parent
+
+        while let Some(node) = queue.pop_front() {
+            if node == dest {
+                // Reconstruct path
+                let mut path = vec![dest];
+                let mut cur = dest;
+                loop {
+                    let p = parent[&cur];
+                    if p == cur { break; } // back at source sentinel
+                    path.push(p);
+                    cur = p;
+                }
+                path.reverse();
+                return Some(path);
+            }
+            if let Some(neighbors) = self.edges.get(&node) {
+                let mut sorted: Vec<NodeId> = neighbors.iter().copied().collect();
+                sorted.sort_unstable(); // deterministic traversal
+                for next in sorted {
+                    if !parent.contains_key(&next)
+                        && !removed_nodes.contains(&next)
+                        && !removed_edges.contains(&(node, next))
+                    {
+                        parent.insert(next, node);
+                        queue.push_back(next);
+                    }
+                }
+            }
+        }
+        None
     }
     
     /// Get network statistics
@@ -243,7 +353,7 @@ mod tests {
     fn test_commitment_changes() {
         let mut network = NetworkGraph::new();
         let commitment1 = *network.commitment();
-        
+
         network.add_node(NodeInfo {
             id: 1,
             bandwidth: 1_000_000,
@@ -251,8 +361,75 @@ mod tests {
             uptime_hours: 100,
             reputation: 0.9,
         });
-        
+
         let commitment2 = *network.commitment();
         assert_ne!(commitment1, commitment2);
+    }
+
+    fn diamond_graph() -> NetworkGraph {
+        // Diamond: A — B — D
+        //                \—C—/
+        let mut g = NetworkGraph::new();
+        let mk = |id| NodeInfo { id, bandwidth: 1_000_000, latency_ms: 10, uptime_hours: 0, reputation: 1.0 };
+        for id in [1u32, 2, 3, 4] { g.add_node(mk(id)); }
+        // A=1, B=2, C=3, D=4
+        g.add_edge(1, 2); // A-B
+        g.add_edge(1, 3); // A-C
+        g.add_edge(2, 4); // B-D
+        g.add_edge(3, 4); // C-D
+        g
+    }
+
+    #[test]
+    fn test_k_shortest_paths_direct() {
+        let mut g = NetworkGraph::new();
+        let mk = |id| NodeInfo { id, bandwidth: 1_000_000, latency_ms: 10, uptime_hours: 0, reputation: 1.0 };
+        for id in [1u32, 2, 3] { g.add_node(mk(id)); }
+        g.add_edge(1, 2);
+        g.add_edge(2, 3);
+
+        let paths = g.k_shortest_paths(1, 3, 1);
+        assert_eq!(paths.len(), 1);
+        assert_eq!(paths[0], vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_k_shortest_paths_diamond_two_paths() {
+        let g = diamond_graph();
+        // A→D has two equal-length paths: A-B-D and A-C-D
+        let paths = g.k_shortest_paths(1, 4, 2);
+        assert_eq!(paths.len(), 2);
+        // Both paths must be length 3
+        for p in &paths { assert_eq!(p.len(), 3); }
+        // Both start at 1, end at 4
+        for p in &paths {
+            assert_eq!(*p.first().unwrap(), 1);
+            assert_eq!(*p.last().unwrap(), 4);
+        }
+        // The two paths must be distinct
+        assert_ne!(paths[0], paths[1]);
+    }
+
+    #[test]
+    fn test_k_shortest_paths_no_route() {
+        let g = diamond_graph();
+        // Node 99 doesn't exist
+        let paths = g.k_shortest_paths(1, 99, 3);
+        assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn test_k_shortest_paths_same_source_dest() {
+        let g = diamond_graph();
+        let paths = g.k_shortest_paths(1, 1, 3);
+        assert!(paths.is_empty());
+    }
+
+    #[test]
+    fn test_k_less_than_available() {
+        // Ask for 1 path when 2 exist — must return exactly 1
+        let g = diamond_graph();
+        let paths = g.k_shortest_paths(1, 4, 1);
+        assert_eq!(paths.len(), 1);
     }
 }

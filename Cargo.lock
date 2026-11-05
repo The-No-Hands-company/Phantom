@@ -4100,6 +4100,7 @@ dependencies = [
  "phantom-crypto",
  "phantom-networking",
  "phantom-routing",
+ "phantom-zkvm",
  "serde",
  "serde_json",
  "tokio",

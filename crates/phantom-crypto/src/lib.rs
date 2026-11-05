@@ -12,7 +12,7 @@ pub mod zk;
 pub mod primitives;
 
 pub use pq::{KeyPair, PublicKey, SecretKey, SharedSecret, EncryptedPayload};
-pub use fhe::{FheEngine, EncryptedValue, ServerKey, ClientKey};
+pub use fhe::{FheEngine, EncryptedValue, ServerKey, ClientKey, RelayKeyRegistry};
 pub use zk::{ProofSystem, Proof, Circuit, RateLimitNullifier, NullifierSet};
 
 /// Re-export common types
