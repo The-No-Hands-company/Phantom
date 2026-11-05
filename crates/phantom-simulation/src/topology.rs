@@ -89,27 +89,63 @@ impl TopologyGenerator {
     /// Generate small-world network (Watts-Strogatz model)
     fn generate_small_world(&self, num_nodes: usize) -> Result<NetworkGraph> {
         let mut graph = NetworkGraph::new();
-        let k = 4;  // Each node connects to k nearest neighbors
-        let _beta = 0.1;  // Rewiring probability
-        
-        // Add nodes
+        if num_nodes == 0 { return Ok(graph); }
+
+        let k = 4;   // each node's degree in the initial ring lattice
+        let beta = 0.1f64; // rewiring probability
+
         for i in 0..num_nodes {
-            let info = create_default_node_info((i as u32) + 1);
-            graph.add_node(info);
+            graph.add_node(create_default_node_info((i as u32) + 1));
         }
-        
-        // Create ring lattice
+
+        let mut rng = rand::thread_rng();
+
+        // Build a mutable adjacency list so we can rewire edges in place.
+        let mut adj: Vec<std::collections::HashSet<usize>> =
+            vec![std::collections::HashSet::new(); num_nodes];
+
+        // Ring lattice: node i ↔ i+1, i+2, …, i+k/2  (mod n)
         for i in 0..num_nodes {
-            for j in 1..=(k / 2) {
-                let neighbor = (i + j) % num_nodes;
-                graph.add_edge((i as u32) + 1, (neighbor as u32) + 1);
-                graph.add_edge((neighbor as u32) + 1, (i as u32) + 1);
+            for d in 1..=(k / 2) {
+                let j = (i + d) % num_nodes;
+                adj[i].insert(j);
+                adj[j].insert(i);
             }
         }
-        
-        // TODO: Implement rewiring with probability beta
-        // For now, just return the ring lattice
-        
+
+        // Rewiring pass (considers each directed "right" edge once)
+        for i in 0..num_nodes {
+            for d in 1..=(k / 2) {
+                if rng.gen::<f64>() >= beta { continue; }
+
+                let old_j = (i + d) % num_nodes;
+
+                // Pick a random new target ≠ i and not already adjacent to i
+                let mut new_j = rng.gen_range(0..num_nodes);
+                let mut tries = 0usize;
+                while (new_j == i || adj[i].contains(&new_j)) && tries < num_nodes {
+                    new_j = rng.gen_range(0..num_nodes);
+                    tries += 1;
+                }
+                if tries == num_nodes { continue; }
+
+                // Swap: remove i↔old_j, add i↔new_j
+                adj[i].remove(&old_j);
+                adj[old_j].remove(&i);
+                adj[i].insert(new_j);
+                adj[new_j].insert(i);
+            }
+        }
+
+        // Write final edges into the graph (emit each undirected pair once)
+        for i in 0..num_nodes {
+            for &j in &adj[i] {
+                if i < j {
+                    graph.add_edge((i as u32) + 1, (j as u32) + 1);
+                }
+            }
+        }
+
         Ok(graph)
     }
     
@@ -131,19 +167,48 @@ impl TopologyGenerator {
             }
         }
         
-        // Add remaining nodes with preferential attachment
+        // degree[i] = current degree of node i+1 in the seed graph
+        let mut degree: Vec<u64> = vec![(m - 1) as u64; m];
+        degree.resize(num_nodes, 0);
+
+        let mut rng = rand::thread_rng();
+
+        // Barabási–Albert preferential attachment
         for i in m..num_nodes {
             let info = create_default_node_info((i as u32) + 1);
             graph.add_node(info);
-            
-            // TODO: Implement preferential attachment based on node degree
-            // For now, just connect to first m nodes
-            for j in 0..m {
-                graph.add_edge((i as u32) + 1, (j as u32) + 1);
-                graph.add_edge((j as u32) + 1, (i as u32) + 1);
+
+            let total_degree: u64 = degree[..i].iter().sum();
+            let attach_m = m.min(i);
+            let mut targets: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
+            while targets.len() < attach_m {
+                let chosen = if total_degree == 0 {
+                    rng.gen_range(0..i)
+                } else {
+                    // Roulette-wheel selection proportional to degree
+                    let r = rng.gen_range(0..total_degree);
+                    let mut cumulative = 0u64;
+                    let mut sel = 0usize;
+                    for k in 0..i {
+                        cumulative += degree[k];
+                        if cumulative > r {
+                            sel = k;
+                            break;
+                        }
+                    }
+                    sel
+                };
+                targets.insert(chosen);
+            }
+
+            for &t in &targets {
+                graph.add_edge((i as u32) + 1, (t as u32) + 1);
+                degree[i] += 1;
+                degree[t] += 1;
             }
         }
-        
+
         Ok(graph)
     }
     

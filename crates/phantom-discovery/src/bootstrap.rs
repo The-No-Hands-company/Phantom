@@ -23,8 +23,23 @@ use crate::state::NetworkState;
 use phantom_core::network::{NetworkGraph, NodeId, NodeInfo};
 use phantom_core::identity::NodeIdentity;
 use phantom_crypto::pq::SigningKeyPair;
+use serde::Deserialize;
 use std::net::SocketAddr;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+/// JSON response body returned by a bootstrap node's
+/// `GET /phantom/v1/network_state` endpoint.
+#[derive(Deserialize)]
+struct NetworkStateResponse {
+    /// Blake3 Merkle root of the network's node set, hex-encoded.
+    merkle_root: String,
+    /// Current consensus epoch.
+    epoch: u64,
+    /// Number of nodes in the network at this epoch.
+    node_count: usize,
+    /// Unix timestamp of the last tree update.
+    last_update: u64,
+}
 
 /// Bootstrap client for joining the PHANTOM network
 pub struct BootstrapClient {
@@ -193,24 +208,47 @@ impl BootstrapClient {
         // In production, this would make actual network requests
         // For now, simulate successful bootstrap
         
+        let timeout = Duration::from_secs(self.config.timeout_secs);
+
         for node_addr in to_query {
-            // TODO: Actual HTTP/gRPC request to bootstrap node
-            // let response = http_client.get(format!("http://{}/network_state", node_addr))?;
-            
-            println!("      Querying {}...", node_addr);
+            let url = format!("http://{}/phantom/v1/network_state", node_addr);
+            println!("      Querying {}…", url);
+
+            let result = ureq::get(&url)
+                .timeout(timeout)
+                .call();
+
+            match result {
+                Ok(response) => {
+                    match response.into_json::<NetworkStateResponse>() {
+                        Ok(resp) => {
+                            match hex::decode(&resp.merkle_root) {
+                                Ok(bytes) if bytes.len() == 32 => {
+                                    let mut merkle_root = [0u8; 32];
+                                    merkle_root.copy_from_slice(&bytes);
+                                    let network_state = NetworkState {
+                                        merkle_root,
+                                        epoch: resp.epoch,
+                                        node_count: resp.node_count,
+                                        last_update: resp.last_update,
+                                    };
+                                    println!("      Bootstrap OK from {}: {} nodes, epoch {}",
+                                        node_addr, resp.node_count, resp.epoch);
+                                    return Ok((network_state, to_query.to_vec()));
+                                }
+                                _ => eprintln!("      {}: bad merkle_root format", node_addr),
+                            }
+                        }
+                        Err(e) => eprintln!("      {}: response parse error: {}", node_addr, e),
+                    }
+                }
+                Err(e) => eprintln!("      {}: connection failed: {}", node_addr, e),
+            }
         }
-        
-        // Mock network state (in production, parse from bootstrap response).
-        //
-        // The advertised root is taken from the same tree download_merkle_tree
-        // will construct. It used to be a hard-coded [0xAA; 32], which no
-        // blake3 commitment over a real node set will ever equal — so
-        // verify_merkle_root rejected every bootstrap and bootstrap() could
-        // not succeed even against its own mock.
-        //
-        // Deriving it here keeps the verification step honest rather than
-        // removing it: the two sides are built independently and still
-        // compared, so a change to one and not the other is still caught.
+
+        // All bootstrap nodes unreachable — fall back to a local mock so the
+        // node can still start in development/isolated environments.
+        eprintln!("    ⚠ All bootstrap nodes unreachable; using mock network state (dev mode)");
         const MOCK_NODE_COUNT: usize = 100;
         let network_state = NetworkState {
             merkle_root: *self.mock_network(MOCK_NODE_COUNT).commitment(),
@@ -218,7 +256,7 @@ impl BootstrapClient {
             node_count: MOCK_NODE_COUNT,
             last_update: current_timestamp(),
         };
-        
+
         Ok((network_state, to_query.to_vec()))
     }
     
